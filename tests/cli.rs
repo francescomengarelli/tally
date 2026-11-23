@@ -506,3 +506,30 @@ fn a_dir_that_is_home_stops_every_command() {
             "the dir for a must be an absolute folder of its own",
         ));
 }
+
+#[test]
+fn a_dead_login_counts_to_log_in_and_spawns_no_refresh() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 0.0, 0.0);
+    // expired, with a token that would need the network to renew
+    let dir = env.path(".local/share/tally/personal");
+    fs::create_dir_all(&dir).unwrap();
+    let creds = dir.join(".credentials.json");
+    fs::write(
+        &creds,
+        r#"{"claudeAiOauth":{"accessToken":"t","refreshToken":"r","expiresAt":1}}"#,
+    )
+    .unwrap();
+    let mtime = fs::metadata(&creds).unwrap().modified().unwrap();
+    let nanos = mtime
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    fs::write(env.path(".cache/tally/personal.expired"), nanos.to_string()).unwrap();
+    env.tally()
+        .arg("notice")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 to log in"));
+    assert!(!env.path(".cache/tally/refresh.stamp").exists());
+}

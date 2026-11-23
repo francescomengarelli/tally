@@ -12,6 +12,7 @@ pub mod summary;
 
 use std::ffi::OsString;
 use std::fs;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -185,7 +186,10 @@ pub fn refresh_in_background(ctx: &Context, s: &Snapshot) {
         .append(true)
         .open(ctx.paths.cache.join("refresh.log"))
         .map_or_else(|_| Stdio::null(), Stdio::from);
+    // Its own process group: a signal to the terminal's group can't kill it
+    // between the token request and storing the new login.
     let _ = Command::new(exe)
+        .process_group(0)
         .arg("--config")
         .arg(&ctx.paths.config)
         .arg("refresh")

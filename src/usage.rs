@@ -98,6 +98,41 @@ fn try_write_cache(
     Ok(())
 }
 
+fn expired_path(account: &Account, cache_dir: &Path) -> PathBuf {
+    cache_dir.join(format!("{}.expired", account.name))
+}
+
+/// When the login file last changed: tells a dead login from a new one
+/// without keeping any token.
+fn login_stamp(account: &Account) -> Option<String> {
+    let at = fs::metadata(account.dir.join(".credentials.json"))
+        .and_then(|m| m.modified())
+        .ok()?;
+    let since = at.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(since.as_nanos().to_string())
+}
+
+/// Remember that this login was refused, so nothing tries it again until
+/// the file changes (a new login).
+fn mark_expired(account: &Account, cache_dir: &Path) {
+    let Some(stamp) = login_stamp(account) else {
+        return;
+    };
+    let _ = fs::create_dir_all(cache_dir);
+    let _ = fs::write(expired_path(account, cache_dir), stamp);
+}
+
+/// Was the login as it is now refused before?
+fn is_marked_expired(account: &Account, cache_dir: &Path) -> bool {
+    match (
+        fs::read_to_string(expired_path(account, cache_dir)),
+        login_stamp(account),
+    ) {
+        (Ok(marked), Some(now)) => marked == now,
+        _ => false,
+    }
+}
+
 /// What the cache alone says, without the network, a renewal or any file
 /// written. A login is still needed for the account to count.
 pub fn from_cache(
@@ -108,6 +143,9 @@ pub fn from_cache(
 ) -> Status {
     if let Ok(None) = credentials::read(&account.dir) {
         return Status::NotLoggedIn;
+    }
+    if is_marked_expired(account, cache_dir) {
+        return Status::LoginExpired;
     }
     match cached(account, cache_dir) {
         Some((usage, fetched_at)) => Status::Ready {
@@ -151,6 +189,9 @@ pub fn status(
         Ok(None) => return Status::NotLoggedIn,
         Err(_) => return fallback(cache),
     };
+    if is_marked_expired(account, cache_dir) {
+        return Status::LoginExpired;
+    }
     let at_ms = at.as_millisecond();
 
     let token = if oauth.expires_at <= at_ms {
@@ -159,7 +200,12 @@ pub fn status(
         }
         match renew(account, cache_dir, at_ms, net) {
             Renewed::Token(t) => t,
-            Renewed::Done(status) => return status,
+            Renewed::Done(status) => {
+                if matches!(status, Status::LoginExpired) {
+                    mark_expired(account, cache_dir);
+                }
+                return status;
+            }
             Renewed::Offline => return fallback(cache),
         }
     } else {
@@ -175,7 +221,10 @@ pub fn status(
                 stale: false,
             }
         }
-        Err(ApiError::Unauthorized) => Status::LoginExpired,
+        Err(ApiError::Unauthorized) => {
+            mark_expired(account, cache_dir);
+            Status::LoginExpired
+        }
         Err(ApiError::Other(_)) => fallback(cache),
     }
 }
@@ -262,12 +311,21 @@ fn rescue(account: &Account, cache_dir: &Path, t: &Tokens, expires_at: i64) {
         tmp.persist(&path)?;
         Ok(())
     })();
-    if saved.is_ok() {
-        eprintln!(
-            "tally: i couldn't save the new login for {}; a copy is in {}",
-            account.name,
+    eprintln!(
+        "{}",
+        rescue_notice(&account.name, saved.is_ok().then_some(&path))
+    );
+}
+
+/// What to tell the user about a login that couldn't be stored. Never
+/// holds a token.
+fn rescue_notice(name: &str, copy: Option<&Path>) -> String {
+    match copy {
+        Some(path) => format!(
+            "tally: i couldn't save the new login for {name}; a copy is in {}",
             path.display()
-        );
+        ),
+        None => format!("tally: i couldn't save the new login for {name}; run tally login {name}"),
     }
 }
 
@@ -811,6 +869,96 @@ mod tests {
         assert!(net.usage_calls.lock().unwrap().is_empty());
         // and it touched nothing in the account folder
         assert!(!cache.join("a.lock").exists());
+    }
+
+    fn set_mtime(a: &Account, secs: u64) {
+        let f = fs::File::options()
+            .write(true)
+            .open(a.dir.join(".credentials.json"))
+            .unwrap();
+        f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+            .unwrap();
+    }
+
+    #[test]
+    fn a_dead_login_is_remembered_until_a_new_one() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("cache");
+        let a = account(t.path(), "a");
+        login(&a, "old", Some("r1"), 1_000_000);
+        set_mtime(&a, 1_000);
+        let net = Fake::default();
+        *net.refresh_result.lock().unwrap() = Some(Err(ApiError::Unauthorized));
+        assert!(matches!(
+            status(&a, &cache, MIN, ts(1000), &net),
+            Status::LoginExpired
+        ));
+        assert_eq!(net.refresh_calls.lock().unwrap().len(), 1);
+        // the marker holds no token
+        let marker = fs::read_to_string(cache.join("a.expired")).unwrap();
+        assert!(!marker.contains("r1") && !marker.contains("old"));
+
+        // no more refreshes, with or without renewing, and from the cache alone
+        assert!(matches!(
+            status(&a, &cache, MIN, ts(1000), &net),
+            Status::LoginExpired
+        ));
+        assert!(matches!(
+            status(&a, &cache, MIN, ts(1000), &NoRenew(&net)),
+            Status::LoginExpired
+        ));
+        assert!(matches!(
+            from_cache(&a, &cache, MIN, ts(1000)),
+            Status::LoginExpired
+        ));
+        assert_eq!(net.refresh_calls.lock().unwrap().len(), 1);
+
+        // a new login changes the file: the marker no longer applies
+        login(&a, "new", Some("r2"), 1_000_000);
+        set_mtime(&a, 2_000);
+        assert!(matches!(
+            from_cache(&a, &cache, MIN, ts(1000)),
+            Status::Unavailable
+        ));
+        *net.refresh_result.lock().unwrap() = Some(Err(ApiError::Unauthorized));
+        status(&a, &cache, MIN, ts(1000), &net);
+        assert_eq!(net.refresh_calls.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_rejected_usage_call_is_remembered_too() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("cache");
+        let a = account(t.path(), "a");
+        login(&a, "tok", None, 2_000_000);
+        let net = Fake::with_usage(Err(ApiError::Unauthorized));
+        status(&a, &cache, MIN, ts(1000), &net);
+        status(&a, &cache, MIN, ts(1000), &net);
+        assert_eq!(net.usage_count(), 1);
+        assert!(matches!(
+            from_cache(&a, &cache, MIN, ts(1000)),
+            Status::LoginExpired
+        ));
+    }
+
+    #[test]
+    fn a_failed_rescue_tells_the_user_to_log_in_again() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("cache");
+        fs::create_dir_all(cache.join("a.rescue.json")).unwrap();
+        let a = account(t.path(), "a");
+        let tokens = Tokens {
+            access_token: "secret-a".into(),
+            refresh_token: Some("secret-r".into()),
+            expires_in: 1,
+        };
+        // rescue can't replace a folder: the notice must say so, with no token
+        rescue(&a, &cache, &tokens, 1);
+        assert_eq!(
+            rescue_notice("a", None),
+            "tally: i couldn't save the new login for a; run tally login a"
+        );
+        assert!(rescue_notice("a", Some(Path::new("/x"))).contains("a copy is in /x"));
     }
 
     #[test]
