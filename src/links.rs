@@ -66,8 +66,15 @@ pub fn reconcile(account_dir: &Path, main_dir: &Path, shared: &[String]) -> Resu
                     // the entry is gone from main: the link is dangling
                     remove(&link)?;
                 } else if in_main {
-                    remove(&link)?;
-                    make(&target, &link)?;
+                    if tally_shaped(&link, entry) {
+                        remove(&link)?;
+                        make(&target, &link)?;
+                    } else {
+                        warnings.push(format!(
+                            "{entry} in {} is a link you made, so i left it",
+                            account_dir.display()
+                        ));
+                    }
                 }
             }
             Ok(_) => {
@@ -108,6 +115,17 @@ pub fn reconcile(account_dir: &Path, main_dir: &Path, shared: &[String]) -> Resu
         }
     }
     Ok(warnings)
+}
+
+/// Does the link point at `<something>/.claude/<entry>`: the shape tally
+/// makes, so a link left over from a moved home is ours to fix.
+fn tally_shaped(link: &Path, entry: &str) -> bool {
+    let Ok(target) = fs::read_link(link) else {
+        return false;
+    };
+    let mut parts = target.components().rev();
+    parts.next().is_some_and(|c| c.as_os_str() == entry)
+        && parts.next().is_some_and(|c| c.as_os_str() == ".claude")
 }
 
 fn make(target: &Path, link: &Path) -> Result<()> {
@@ -160,11 +178,15 @@ mod tests {
     }
 
     #[test]
-    fn fixes_wrong_link() {
+    fn fixes_link_left_by_a_moved_home() {
         let d = dirs();
         fs::write(d.main.join("settings.json"), "{}").unwrap();
         fs::create_dir(&d.account).unwrap();
-        symlink("/nowhere", d.account.join("settings.json")).unwrap();
+        symlink(
+            "/old-home/.claude/settings.json",
+            d.account.join("settings.json"),
+        )
+        .unwrap();
         let w = reconcile(&d.account, &d.main, &names(&["settings.json"])).unwrap();
         assert!(w.is_empty());
         assert_eq!(
@@ -224,6 +246,27 @@ mod tests {
             Path::new("/elsewhere")
         );
         assert!(d.account.join("alias").symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn leaves_a_link_the_user_made_and_says_so() {
+        let d = dirs();
+        fs::write(d.main.join("settings.json"), "{}").unwrap();
+        fs::create_dir(&d.account).unwrap();
+        for target in ["/nowhere", "/elsewhere/settings.json", "/x/.claude/other"] {
+            let link = d.account.join("settings.json");
+            let _ = fs::remove_file(&link);
+            symlink(target, &link).unwrap();
+            let w = reconcile(&d.account, &d.main, &names(&["settings.json"])).unwrap();
+            assert_eq!(
+                w,
+                vec![format!(
+                    "settings.json in {} is a link you made, so i left it",
+                    d.account.display()
+                )]
+            );
+            assert_eq!(fs::read_link(&link).unwrap(), Path::new(target));
+        }
     }
 
     #[test]
