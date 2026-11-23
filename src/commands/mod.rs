@@ -46,6 +46,8 @@ pub struct Snapshot {
     pub rows: Vec<Row>,
     pub totals: Totals,
     pub pick: Option<Pick>,
+    /// What an account needs to start a session, from the config.
+    pub min_session: f64,
 }
 
 /// The one place that turns statuses into metrics, totals and a pick.
@@ -140,6 +142,7 @@ pub fn build(ctx: &Context, statuses: Vec<Status>) -> Snapshot {
         totals: maths::totals(&all),
         rows,
         pick,
+        min_session: ctx.config.min_session,
     }
 }
 
@@ -236,6 +239,7 @@ mod tests {
             rows,
             totals: maths::totals(&[]),
             pick: None,
+            min_session: 3.0,
         }
     }
 

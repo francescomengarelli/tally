@@ -79,12 +79,47 @@ pub fn metrics(usage: &Usage, weight: f64, five_hour_share: f64, at: Timestamp) 
     }
 }
 
+impl Metrics {
+    /// The week spread evenly: what a fresh week allows per day.
+    pub fn steady(&self) -> f64 {
+        self.capacity / 7.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Totals {
     pub now: f64,
     pub week: f64,
     pub capacity: f64,
     pub day: f64,
+}
+
+impl Totals {
+    /// The weeks spread evenly: what fresh weeks allow per day.
+    pub fn steady(&self) -> f64 {
+        self.capacity / 7.0
+    }
+}
+
+/// How a daily rate compares to spreading the week evenly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Pace {
+    /// More than steady to spend before the reset: use it or lose it.
+    Ahead,
+    Even,
+    /// Less than steady: the week was spent early, go easy.
+    Behind,
+}
+
+pub fn pace(day: f64, steady: f64) -> Pace {
+    if steady <= 0.0 {
+        return Pace::Even;
+    }
+    match day / steady {
+        r if r >= 1.2 => Pace::Ahead,
+        r if r <= 0.8 => Pace::Behind,
+        _ => Pace::Even,
+    }
 }
 
 pub fn totals(ms: &[Metrics]) -> Totals {
@@ -239,6 +274,23 @@ mod tests {
         let m = metrics(&u, 1.0, 0.18, at());
         close(m.week, 50.0);
         close(m.days_to_reset, 7.0);
+    }
+
+    #[test]
+    fn steady_is_a_seventh_of_capacity() {
+        close(ultra().steady(), 160.0 / 7.0);
+        close(totals(&[team(), ultra()]).steady(), 260.0 / 7.0);
+    }
+
+    #[test]
+    fn pace_against_steady() {
+        assert_eq!(pace(72.0, 18.0), Pace::Ahead);
+        assert_eq!(pace(21.6, 18.0), Pace::Ahead);
+        assert_eq!(pace(18.0, 18.0), Pace::Even);
+        assert_eq!(pace(14.5, 18.0), Pace::Even);
+        assert_eq!(pace(2.0, 18.0), Pace::Behind);
+        assert_eq!(pace(14.4, 18.0), Pace::Behind);
+        assert_eq!(pace(5.0, 0.0), Pace::Even);
     }
 
     #[test]

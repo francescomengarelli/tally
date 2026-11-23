@@ -26,6 +26,7 @@ fn account_name(ctx: &Context) -> Option<String> {
 
 /// Never fails: Claude Code would show an error in place of the line.
 /// Reads the cache only; a background refresh keeps it fresh.
+/// Claude Code renders the colours, so they are on unless `NO_COLOR` is set.
 pub fn run(ctx: &Context) {
     let at = Timestamp::now();
     let statuses = ctx
@@ -40,6 +41,6 @@ pub fn run(ctx: &Context) {
         .iter()
         .any(|r| matches!(r.status, Status::Ready { .. }));
     if let (true, Some(name)) = (any, account_name(ctx)) {
-        println!("{}", format::statusline(&name, &snap));
+        println!("{}", format::statusline(&name, &snap, format::colour(true)));
     }
 }

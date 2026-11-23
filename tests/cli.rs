@@ -35,7 +35,8 @@ impl Env {
         cmd.env("HOME", self.home.path())
             .env("TALLY_CLAUDE", fake)
             .env_remove("CLAUDE_CONFIG_DIR")
-            .env_remove("TALLY_ACCOUNT");
+            .env_remove("TALLY_ACCOUNT")
+            .env("NO_COLOR", "1");
         cmd
     }
 
@@ -429,6 +430,20 @@ fn statusline_reads_env_account() {
         .assert()
         .success()
         .stdout(predicate::str::starts_with("personal · now "));
+}
+
+#[test]
+fn statusline_is_coloured_for_claude_code() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 0.0, 0.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env_remove("NO_COLOR")
+        .env("TALLY_ACCOUNT", "personal")
+        .arg("statusline")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("\x1b[1mpersonal\x1b[0m"));
 }
 
 #[test]
