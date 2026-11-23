@@ -1,24 +1,16 @@
-use anyhow::Result;
-
 use crate::cli::Shell;
-use crate::context::Context;
 
-pub fn run(ctx: &Context, shell: Shell) -> Result<()> {
+pub fn run(shell: Shell) {
     match shell {
-        Shell::Fish => print!("{}", fish(ctx)),
+        Shell::Fish => print!("{FISH}"),
     }
-    Ok(())
 }
 
-fn fish(ctx: &Context) -> String {
-    let mut out = String::from(
-        "function cl --wraps claude --description 'claude on the account tally picks'\n    tally run -- $argv\nend\n",
-    );
-    for a in &ctx.accounts {
-        let name = &a.name;
-        out.push_str(&format!(
-            "function cl-{name} --wraps claude --description 'claude as {name}'\n    tally run {name} -- $argv\nend\n"
-        ));
-    }
-    out
-}
+/// `claude` goes through tally, keeping claude's completions; account names
+/// are read when completing, so a new account needs no new shell.
+const FISH: &str = "\
+function claude --wraps claude --description 'claude on the account tally picks'
+    tally run -- $argv
+end
+complete -c tally -n '__fish_seen_subcommand_from run login remove' -f -a '(tally accounts)'
+";

@@ -295,13 +295,30 @@ fn bad_account_name_in_config_is_named() {
 }
 
 #[test]
-fn init_fish_lists_accounts() {
+fn init_fish_wraps_claude() {
     let env = Env::new(CONFIG);
     env.tally().args(["init", "fish"]).assert().success().stdout(
-        "function cl --wraps claude --description 'claude on the account tally picks'\n    tally run -- $argv\nend\n\
-function cl-acme --wraps claude --description 'claude as acme'\n    tally run acme -- $argv\nend\n\
-function cl-personal --wraps claude --description 'claude as personal'\n    tally run personal -- $argv\nend\n",
+        "function claude --wraps claude --description 'claude on the account tally picks'\n    tally run -- $argv\nend\n\
+complete -c tally -n '__fish_seen_subcommand_from run login remove' -f -a '(tally accounts)'\n",
     );
+}
+
+#[test]
+fn init_needs_no_config() {
+    let env = Env::new("not toml [");
+    env.tally().args(["init", "fish"]).assert().success();
+}
+
+#[test]
+fn accounts_lists_names_and_never_fails() {
+    let env = Env::new(CONFIG);
+    env.tally()
+        .arg("accounts")
+        .assert()
+        .success()
+        .stdout("acme\npersonal\n");
+    let env = Env::new("not toml [");
+    env.tally().arg("accounts").assert().success().stdout("");
 }
 
 #[test]
@@ -405,11 +422,9 @@ fn notice_prints_the_totals_and_the_pick() {
     let env = Env::new(CONFIG);
     env.cache("acme", 0.0, 0.0);
     env.cache("personal", 0.0, 0.0);
-    env.tally()
-        .arg("notice")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(" claude: now ").and(predicate::str::contains("→  cl (")));
+    env.tally().arg("notice").assert().success().stdout(
+        predicate::str::contains(" claude: now ").and(predicate::str::contains("→  claude (")),
+    );
 }
 
 #[test]
@@ -473,7 +488,7 @@ fn statusline_suggests_resuming_when_out_of_room() {
         .assert()
         .success()
         .stdout(predicate::str::ends_with(
-            "  →  cl-personal -r 3f2a91c0-7d4e-4b1a-9c2e-5a6b7c8d9e01\n",
+            "  →  tally run personal -- -r 3f2a91c0-7d4e-4b1a-9c2e-5a6b7c8d9e01\n",
         ));
 }
 
@@ -488,7 +503,7 @@ fn statusline_suggests_resuming_where_much_more_expires() {
         .write_stdin(SESSION)
         .assert()
         .success()
-        .stdout(predicate::str::contains("→  cl-personal -r 3f2a"));
+        .stdout(predicate::str::contains("→  tally run personal -- -r 3f2a"));
 }
 
 #[test]
@@ -516,7 +531,7 @@ fn statusline_drops_a_session_id_that_could_draw_on_screen() {
         .write_stdin(r#"{"session_id":"x\u001b[2J"}"#)
         .assert()
         .success()
-        .stdout(predicate::str::ends_with("  →  cl-personal\n"));
+        .stdout(predicate::str::ends_with("  →  tally run personal\n"));
 }
 
 #[test]

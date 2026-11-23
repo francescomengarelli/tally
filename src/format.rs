@@ -122,7 +122,7 @@ pub fn notice(s: &Snapshot, color: bool) -> Option<String> {
     if let Some(p) = &s.pick {
         line = line
             .dim("  →  ")
-            .val(&format!("cl ({})", p.name), Some(BOLD));
+            .val(&format!("claude ({})", p.name), Some(BOLD));
     }
     Some(line.out)
 }
@@ -153,8 +153,8 @@ pub fn statusline(account: &str, s: &Snapshot, hint: Option<&Hint>, color: bool)
         return line.out;
     };
     let cmd = match h.session {
-        Some(id) => format!("cl-{} -r {id}", h.to),
-        None => format!("cl-{}", h.to),
+        Some(id) => format!("tally run {} -- -r {id}", h.to),
+        None => format!("tally run {}", h.to),
     };
     let code = match h.switch {
         Switch::Needed => RED,
@@ -388,7 +388,7 @@ mod tests {
     fn notice_line_exact() {
         assert_eq!(
             notice(&two(), false).unwrap(),
-            " claude: now 166% · week 166% left (of 260%) · 26%/day (37% steady)  →  cl (personal)"
+            " claude: now 166% · week 166% left (of 260%) · 26%/day (37% steady)  →  claude (personal)"
         );
     }
 
@@ -396,7 +396,7 @@ mod tests {
     fn notice_colours_the_prefix_dim_and_the_command_bold() {
         let n = notice(&two(), true).unwrap();
         assert!(n.starts_with("\x1b[90m claude: now \x1b[0m"));
-        assert!(n.ends_with("\x1b[1mcl (personal)\x1b[0m"));
+        assert!(n.ends_with("\x1b[1mclaude (personal)\x1b[0m"));
     }
 
     #[test]
@@ -472,7 +472,7 @@ mod tests {
         };
         assert_eq!(
             statusline("acme", &two(), Some(&hint), false),
-            "acme · now 166% · week 166% · 26%/day (37%)  →  cl-personal -r 3f2a-e91c"
+            "acme · now 166% · week 166% · 26%/day (37%)  →  tally run personal -- -r 3f2a-e91c"
         );
         let hint = Hint {
             session: None,
@@ -480,7 +480,7 @@ mod tests {
             ..hint
         };
         let line = statusline("acme", &two(), Some(&hint), true);
-        assert!(line.ends_with("\x1b[33mcl-personal\x1b[0m"));
+        assert!(line.ends_with("\x1b[33mtally run personal\x1b[0m"));
     }
 
     #[test]
