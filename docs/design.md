@@ -80,7 +80,7 @@ tally remove NAME             remove it from the config; ask before deleting its
 tally login ACCOUNT           log the account in (creates its folder if needed)
 tally notice                  one line for shell startup
 tally statusline              one line for Claude Code's status line
-tally init fish               aliases and completions, for `| source`
+tally init fish               claude wrapper and completions, for `| source`
 ```
 
 - `run`: after `run`, the only positional is an account name. Everything
@@ -89,8 +89,10 @@ tally init fish               aliases and completions, for `| source`
 - `add` edits the config in place with `toml_edit`, keeping comments and
   layout, writing through the symlink perch made.
 - `login` runs `claude auth login` with the account's `CLAUDE_CONFIG_DIR`.
-- `init fish` prints `cl` (`tally run`), `cl-<name>` for each account
-  (`tally run <name>`), and completions that wrap claude's.
+- `init fish` prints a `claude` function (`tally run`) that wraps claude's
+  completions, and completes account names for `run`, `login` and `remove`
+  through the hidden `tally accounts`, read at completion time. It reads no
+  config.
 
 ### New machine
 
@@ -199,7 +201,7 @@ only where a session can actually run.
 dotfiles):
 
 ```
- claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  cl (personal)
+ claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
 ```
 
 `statusline`, from `TALLY_ACCOUNT`, or from `CLAUDE_CONFIG_DIR` when Claude
@@ -210,9 +212,9 @@ personal · now 72% · week 206% · 31%/day (37%)
 ```
 
 When the picked account is not the one running, and switching is worth it,
-the line ends with `  →  cl-<picked> -r <session id>`, the session id read
-from the JSON Claude Code pipes in (letters, digits and dashes only; without
-one, just `cl-<picked>`). Worth it means:
+the line ends with `  →  tally run <picked> -- -r <session id>`, the session
+id read from the JSON Claude Code pipes in (letters, digits and dashes only;
+without one, just `tally run <picked>`). Worth it means:
 
 - **red:** the running account has `now < min_session` and the picked one
   has `now ≥ min_session`;
