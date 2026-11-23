@@ -6,7 +6,8 @@ use predicates::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const CONFIG: &str = "unit = \"acme\"\n\n[account.acme]\ndir = \"~/.claude\"\nplan = 5.0\n\n[account.personal]\n";
+const CONFIG: &str =
+    "unit = \"acme\"\n\n[account.acme]\ndir = \"~/.claude\"\nplan = 5.0\n\n[account.personal]\n";
 
 struct Env {
     home: tempfile::TempDir,
@@ -308,11 +309,7 @@ fn fresh_cache_without_a_login_is_not_picked() {
     let env = Env::new(CONFIG);
     env.cache("acme", 90.0, 90.0);
     env.cache_only("personal", 0.0, 0.0);
-    env.tally()
-        .arg("pick")
-        .assert()
-        .success()
-        .stdout("acme\n");
+    env.tally().arg("pick").assert().success().stdout("acme\n");
 }
 
 #[test]
@@ -380,11 +377,7 @@ fn remove_a_non_unit_account_leaves_pick_working() {
     let env = Env::new(CONFIG);
     env.cache("acme", 10.0, 10.0);
     env.tally().args(["remove", "personal"]).assert().success();
-    env.tally()
-        .arg("pick")
-        .assert()
-        .success()
-        .stdout("acme\n");
+    env.tally().arg("pick").assert().success().stdout("acme\n");
 }
 
 #[test]
