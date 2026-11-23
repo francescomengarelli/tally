@@ -8,7 +8,7 @@ one claude code setup, several subscriptions, one number for what's left.
 ## Installation
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/francescomengarelli/tally/main/install.sh | sh
+curl -fsSL https://get.mengarelli.eu/tally | sh
 ```
 
 Or build from source:
