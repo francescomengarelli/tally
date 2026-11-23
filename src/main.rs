@@ -3,6 +3,8 @@ mod api;
 #[allow(dead_code)]
 mod config;
 #[allow(dead_code)]
+mod config_edit;
+#[allow(dead_code)]
 mod credentials;
 #[allow(dead_code)]
 mod links;
