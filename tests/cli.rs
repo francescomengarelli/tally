@@ -54,10 +54,12 @@ impl Env {
 
     /// A fresh cache entry with no login behind it.
     fn cache_only(&self, name: &str, five: f64, week: f64) {
+        // an hour ahead, so a slow run never counts it as old and refreshes
         let now = jiff::Timestamp::now();
+        let fetched = jiff::Timestamp::from_second(now.as_second() + 3600).unwrap();
         let in_hours = |h: i64| jiff::Timestamp::from_second(now.as_second() + h * 3600).unwrap();
         let body = serde_json::json!({
-            "fetched_at": now,
+            "fetched_at": fetched,
             "usage": {
                 "five_hour": {"utilization": five, "resets_at": in_hours(3)},
                 "seven_day": {"utilization": week, "resets_at": in_hours(72)},
@@ -382,4 +384,89 @@ fn remove_a_non_unit_account_leaves_pick_working() {
         .assert()
         .success()
         .stdout("acme\n");
+}
+
+#[test]
+fn notice_offline_prints_nothing_and_succeeds() {
+    let env = Env::new(CONFIG);
+    env.tally()
+        .arg("notice")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn notice_with_a_broken_config_prints_nothing_and_succeeds() {
+    let env = Env::new("this is not toml [");
+    env.tally()
+        .arg("notice")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn notice_prints_the_totals_and_the_pick() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 0.0, 0.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .arg("notice")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(" claude: now ").and(predicate::str::contains("→  cl (")));
+}
+
+#[test]
+fn statusline_reads_env_account() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 0.0, 0.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env("TALLY_ACCOUNT", "personal")
+        .arg("statusline")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("personal · now "));
+}
+
+#[test]
+fn statusline_reads_config_dir_account() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 0.0, 0.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env("CLAUDE_CONFIG_DIR", env.path(".local/share/tally/personal"))
+        .arg("statusline")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("personal · now "));
+    env.tally()
+        .arg("statusline")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("acme · now "));
+}
+
+#[test]
+fn statusline_without_data_prints_nothing_and_succeeds() {
+    let env = Env::new(CONFIG);
+    env.tally()
+        .arg("statusline")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn summary_prints_a_table_with_a_total() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 10.0, 20.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally().assert().success().stdout(
+        predicate::str::starts_with("account")
+            .and(predicate::str::contains("acme"))
+            .and(predicate::str::contains("total")),
+    );
 }

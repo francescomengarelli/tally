@@ -1,9 +1,13 @@
 pub mod add;
 pub mod init;
 pub mod login;
+pub mod notice;
 pub mod pick;
+pub mod refresh;
 pub mod remove;
 pub mod run;
+pub mod statusline;
+pub mod summary;
 
 use std::ffi::OsString;
 
@@ -25,10 +29,8 @@ pub struct Row {
     pub account: Account,
     pub status: Status,
     /// Weekly multiple of Pro.
-    #[allow(dead_code)] // Task 10 (summary)
     pub plan: f64,
     /// False when the plan was a guess (unknown tier).
-    #[allow(dead_code)] // Task 10 (summary)
     pub plan_known: bool,
     /// Only for accounts with data.
     pub metrics: Option<Metrics>,
@@ -36,7 +38,6 @@ pub struct Row {
 
 pub struct Snapshot {
     pub rows: Vec<Row>,
-    #[allow(dead_code)] // Task 10 (summary, notice)
     pub totals: Totals,
     pub pick: Option<Pick>,
 }

@@ -38,7 +38,7 @@ fn left(w: &Window, at: Timestamp) -> f64 {
 }
 
 /// The week's next reset: one that has passed rolls forward by whole weeks.
-fn next_week_reset(w: &Window, at: Timestamp) -> Option<Timestamp> {
+pub fn next_week_reset(w: &Window, at: Timestamp) -> Option<Timestamp> {
     let r = w.resets_at?;
     if r > at {
         return Some(r);
@@ -80,7 +80,6 @@ pub fn metrics(usage: &Usage, weight: f64, five_hour_share: f64, at: Timestamp) 
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Task 10 prints every field
 pub struct Totals {
     pub now: f64,
     pub week: f64,

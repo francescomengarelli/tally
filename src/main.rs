@@ -5,6 +5,7 @@ mod config;
 mod config_edit;
 mod context;
 mod credentials;
+mod format;
 mod links;
 mod maths;
 mod pick;
@@ -16,14 +17,24 @@ use cli::{Cli, Commands};
 use context::Context;
 
 fn main() {
-    if let Err(e) = real_main() {
+    let cli = Cli::parse();
+    // Shell startup and the status line must never fail, whatever is wrong.
+    if let Some(Commands::Notice | Commands::Statusline) = cli.command {
+        if let Ok(ctx) = Context::load(cli.config) {
+            match cli.command {
+                Some(Commands::Notice) => commands::notice::run(&ctx),
+                _ => commands::statusline::run(&ctx),
+            }
+        }
+        return;
+    }
+    if let Err(e) = real_main(cli) {
         eprintln!("tally: {e:#}");
         std::process::exit(1);
     }
 }
 
-fn real_main() -> Result<()> {
-    let cli = Cli::parse();
+fn real_main(cli: Cli) -> Result<()> {
     let ctx = Context::load(cli.config)?;
     match cli.command {
         Some(Commands::Run { account, args }) => {
@@ -34,9 +45,12 @@ fn real_main() -> Result<()> {
         Some(Commands::Remove { name }) => commands::remove::run(&ctx, &name),
         Some(Commands::Login { account }) => commands::login::run(&ctx, &account),
         Some(Commands::Init { shell }) => commands::init::run(&ctx, shell),
-        // Task 10: the summary, notice, statusline and refresh.
-        None | Some(Commands::Notice | Commands::Statusline | Commands::Refresh) => {
-            anyhow::bail!("not built yet")
+        Some(Commands::Refresh) => {
+            commands::refresh::run(&ctx);
+            Ok(())
         }
+        None => commands::summary::run(&ctx),
+        // handled in main: they never fail
+        Some(Commands::Notice | Commands::Statusline) => Ok(()),
     }
 }
