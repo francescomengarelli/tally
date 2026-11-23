@@ -6,7 +6,10 @@ use std::io::ErrorKind;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+
+/// Each account's own login and state: never shared.
+const PER_ACCOUNT: [&str; 2] = [".credentials.json", ".claude.json"];
 
 /// Make `account_dir` link every `shared` entry that exists in `main_dir`.
 /// Returns warnings. Only symlinks tally made (pointing at
@@ -14,6 +17,18 @@ use anyhow::{Context, Result};
 pub fn reconcile(account_dir: &Path, main_dir: &Path, shared: &[String]) -> Result<Vec<String>> {
     fs::create_dir_all(account_dir)
         .with_context(|| format!("i couldn't create {}", account_dir.display()))?;
+
+    // Linking a folder into itself would replace main's own links with loops.
+    if let Ok(main) = fs::canonicalize(main_dir) {
+        let account = fs::canonicalize(account_dir)
+            .with_context(|| format!("i couldn't resolve {}", account_dir.display()))?;
+        if account.starts_with(&main) {
+            bail!(
+                "i won't link {} to itself: it is the main folder",
+                account_dir.display()
+            );
+        }
+    }
 
     let mut warnings = Vec::new();
     let mut listed = HashSet::new();
@@ -24,11 +39,23 @@ pub fn reconcile(account_dir: &Path, main_dir: &Path, shared: &[String]) -> Resu
             ));
             continue;
         }
+        if PER_ACCOUNT.contains(&entry.as_str()) {
+            warnings.push(format!(
+                "i skipped '{entry}' in shared: it belongs to each account"
+            ));
+            continue;
+        }
         listed.insert(entry.as_str());
 
         let target = main_dir.join(entry);
         let link = account_dir.join(entry);
-        let in_main = target.exists();
+        let in_main = match fs::metadata(&target) {
+            Ok(_) => true,
+            Err(e) if e.kind() == ErrorKind::NotFound => false,
+            Err(e) => {
+                return Err(e).with_context(|| format!("i couldn't check {}", target.display()));
+            }
+        };
         match link.symlink_metadata() {
             Ok(meta) if meta.is_symlink() => {
                 let own = fs::read_link(&link).is_ok_and(|t| t == target);
@@ -68,7 +95,10 @@ pub fn reconcile(account_dir: &Path, main_dir: &Path, shared: &[String]) -> Resu
     for item in dir {
         let item = item.with_context(|| format!("i couldn't read {}", account_dir.display()))?;
         let name = item.file_name();
-        if name.to_str().is_some_and(|n| listed.contains(n)) {
+        if name
+            .to_str()
+            .is_some_and(|n| listed.contains(n) || PER_ACCOUNT.contains(&n))
+        {
             continue;
         }
         let path = item.path();
@@ -252,5 +282,79 @@ mod tests {
         let w = reconcile(&d.account, &d.main, &names(&["skills"])).unwrap();
         assert_eq!(w.len(), 1);
         assert!(d.account.join("skills/keep").exists());
+    }
+
+    #[test]
+    fn refuses_the_main_folder_itself() {
+        let d = dirs();
+        symlink("/elsewhere", d.main.join("settings.json")).unwrap();
+        let list = names(&["settings.json"]);
+        let e = reconcile(&d.main, &d.main, &list).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            format!(
+                "i won't link {} to itself: it is the main folder",
+                d.main.display()
+            )
+        );
+        let via = d.main.parent().unwrap().join("via");
+        symlink(&d.main, &via).unwrap();
+        assert!(reconcile(&via, &d.main, &list).is_err());
+        assert_eq!(
+            fs::read_link(d.main.join("settings.json")).unwrap(),
+            Path::new("/elsewhere")
+        );
+    }
+
+    #[test]
+    fn refuses_a_folder_inside_main() {
+        let d = dirs();
+        let inner = d.main.join("inner");
+        assert!(reconcile(&inner, &d.main, &names(&["x"])).is_err());
+    }
+
+    #[test]
+    fn skips_per_account_files() {
+        let d = dirs();
+        fs::write(d.main.join(".credentials.json"), "x").unwrap();
+        fs::write(d.main.join(".claude.json"), "x").unwrap();
+        fs::create_dir(&d.account).unwrap();
+        symlink("/elsewhere", d.account.join(".credentials.json")).unwrap();
+        let w = reconcile(
+            &d.account,
+            &d.main,
+            &names(&[".credentials.json", ".claude.json"]),
+        )
+        .unwrap();
+        assert_eq!(
+            w,
+            vec![
+                "i skipped '.credentials.json' in shared: it belongs to each account",
+                "i skipped '.claude.json' in shared: it belongs to each account",
+            ]
+        );
+        assert_eq!(
+            fs::read_link(d.account.join(".credentials.json")).unwrap(),
+            Path::new("/elsewhere")
+        );
+        assert!(d.account.join(".claude.json").symlink_metadata().is_err());
+    }
+
+    #[test]
+    fn unreadable_main_removes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dirs();
+        fs::write(d.main.join("plans"), "x").unwrap();
+        let list = names(&["plans"]);
+        reconcile(&d.account, &d.main, &list).unwrap();
+        fs::set_permissions(&d.main, fs::Permissions::from_mode(0o000)).unwrap();
+        let r = reconcile(&d.account, &d.main, &list);
+        fs::set_permissions(&d.main, fs::Permissions::from_mode(0o755)).unwrap();
+        if let Err(e) = r {
+            assert!(e.to_string().starts_with("i couldn't check"));
+        } else {
+            // running as root: permissions don't apply
+        }
+        assert!(d.account.join("plans").symlink_metadata().is_ok());
     }
 }
