@@ -471,6 +471,8 @@ fn summary_prints_a_table_with_a_total() {
     );
 }
 
+// The lock is held in this process, and other tests fork children that can
+// inherit its fd: so nothing here may rely on the lock being released.
 #[test]
 fn refresh_exits_quietly_when_another_refresh_holds_the_lock() {
     let env = Env::new(CONFIG);
@@ -484,7 +486,23 @@ fn refresh_exits_quietly_when_another_refresh_holds_the_lock() {
         .success()
         .stdout(predicate::str::is_empty());
     assert!(!cache.join("refresh.stamp").exists());
-    drop(held);
+}
+
+#[test]
+fn refresh_notes_when_it_started() {
+    let env = Env::new(CONFIG);
     env.tally().arg("refresh").assert().success();
-    assert!(cache.join("refresh.stamp").exists());
+    assert!(env.path(".cache/tally/refresh.stamp").exists());
+}
+
+#[test]
+fn a_dir_that_is_home_stops_every_command() {
+    let env = Env::new("[account.a]\ndir = \"$HOME\"\n");
+    env.tally()
+        .arg("pick")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the dir for a must be an absolute folder of its own",
+        ));
 }

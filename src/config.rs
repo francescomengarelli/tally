@@ -89,12 +89,17 @@ pub fn load(paths: &Paths) -> Result<Config> {
         .with_context(|| format!("i couldn't parse {}", paths.config.display()))
 }
 
-/// Expand a leading `~` and drop trailing slashes, so spellings compare equal.
+/// Expand a leading `~` or `$HOME` and drop trailing slashes, so spellings
+/// compare equal.
 fn expand(dir: &str, home: &Path) -> PathBuf {
-    let dir = match dir.strip_prefix('~') {
+    let rest = dir
+        .strip_prefix('~')
+        .or_else(|| dir.strip_prefix("$HOME"))
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'));
+    let dir = match rest {
         Some("") => home.to_path_buf(),
-        Some(rest) if rest.starts_with('/') => home.join(rest.trim_start_matches('/')),
-        _ => PathBuf::from(dir),
+        Some(rest) => home.join(rest.trim_start_matches('/')),
+        None => PathBuf::from(dir),
     };
     let text = dir.to_string_lossy();
     let trimmed = text.trim_end_matches('/');
@@ -212,6 +217,18 @@ mod tests {
             assert!(accounts[0].is_main, "{dir}");
             assert_eq!(accounts[0].plan, Some(6.25));
         }
+    }
+
+    #[test]
+    fn dollar_home_expands_like_tilde() {
+        let (_t, paths) = setup(Some(
+            "[account.a]\ndir = \"$HOME/.claude\"\n[account.b]\ndir = \"$HOME\"\n[account.c]\ndir = \"$HOMEWORK/x\"\n",
+        ));
+        let accounts = load(&paths).unwrap().accounts(&paths);
+        assert_eq!(accounts[0].dir, paths.home.join(".claude"));
+        assert!(accounts[0].is_main);
+        assert_eq!(accounts[1].dir, paths.home);
+        assert_eq!(accounts[2].dir, PathBuf::from("$HOMEWORK/x"));
     }
 
     #[test]
