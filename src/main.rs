@@ -15,7 +15,14 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use context::Context;
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = real_main() {
+        eprintln!("tally: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn real_main() -> Result<()> {
     let cli = Cli::parse();
     let ctx = Context::load(cli.config)?;
     match cli.command {

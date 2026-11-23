@@ -47,17 +47,29 @@ pub fn snapshot(ctx: &Context, max_age: SignedDuration, net: &dyn Net) -> Snapsh
     let at = Timestamp::now();
 
     // Even a cached status needs the login's tier for the plan.
+    let logins: Vec<Option<credentials::Oauth>> = ctx
+        .accounts
+        .iter()
+        .map(|a| credentials::read(&a.dir).ok().flatten())
+        .collect();
     let plans: Vec<(f64, bool)> = ctx
         .accounts
         .iter()
-        .map(|a| match a.plan {
+        .zip(&logins)
+        .map(|(a, login)| match a.plan {
             Some(p) => (p, true),
-            None => {
-                let tier = credentials::read(&a.dir)
-                    .ok()
-                    .flatten()
-                    .and_then(|o| o.rate_limit_tier);
-                maths::tier_multiple(tier.as_deref())
+            None => maths::tier_multiple(login.as_ref().and_then(|o| o.rate_limit_tier.as_deref())),
+        })
+        .collect();
+    // no login, no account: a leftover cache doesn't make it usable
+    let statuses: Vec<Status> = statuses
+        .into_iter()
+        .zip(&logins)
+        .map(|(s, login)| {
+            if login.is_none() {
+                Status::NotLoggedIn
+            } else {
+                s
             }
         })
         .collect();
@@ -95,7 +107,13 @@ pub fn snapshot(ctx: &Context, max_age: SignedDuration, net: &dyn Net) -> Snapsh
         .collect();
 
     let all: Vec<Metrics> = rows.iter().filter_map(|r| r.metrics.clone()).collect();
-    let cands: Vec<Candidate> = rows
+    let out = |r: &Row| matches!(r.status, Status::NotLoggedIn | Status::LoginExpired);
+    // accounts without a login are never picked, unless none has one
+    let usable: Vec<&Row> = match rows.iter().any(|r| !out(r)) {
+        true => rows.iter().filter(|r| !out(r)).collect(),
+        false => rows.iter().collect(),
+    };
+    let cands: Vec<Candidate> = usable
         .iter()
         .map(|r| Candidate {
             name: &r.account.name,
@@ -108,5 +126,45 @@ pub fn snapshot(ctx: &Context, max_age: SignedDuration, net: &dyn Net) -> Snapsh
         totals: maths::totals(&all),
         rows,
         pick,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{ApiError, Tokens, Usage};
+    use crate::config::{Config, Paths};
+
+    struct Offline;
+
+    impl Net for Offline {
+        fn usage(&self, _: &str) -> Result<Usage, ApiError> {
+            Err(ApiError::Other(anyhow::anyhow!("offline")))
+        }
+        fn refresh(&self, _: &str) -> Result<Tokens, ApiError> {
+            Err(ApiError::Other(anyhow::anyhow!("offline")))
+        }
+    }
+
+    #[test]
+    fn offline_picks_the_logged_in_account_over_a_logged_out_unit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path(), None);
+        let config: Config = toml::from_str(
+            "unit = \"acme\"\n[account.acme]\ndir = \"~/.claude\"\n[account.personal]\n",
+        )
+        .unwrap();
+        let accounts = config.accounts(&paths);
+        let dir = &accounts[1].dir;
+        std::fs::create_dir_all(dir).unwrap();
+        let login = r#"{"claudeAiOauth":{"accessToken":"t","expiresAt":99999999999999}}"#;
+        std::fs::write(dir.join(".credentials.json"), login).unwrap();
+        let ctx = Context {
+            paths,
+            config,
+            accounts,
+        };
+        let snap = snapshot(&ctx, SignedDuration::from_mins(1), &Offline);
+        assert_eq!(snap.pick.unwrap().name, "personal");
     }
 }

@@ -23,6 +23,11 @@ impl Context {
                 )
             })?;
         }
+        for (name, entry) in &config.account {
+            if entry.plan.is_some_and(|p| !p.is_finite() || p <= 0.0) {
+                anyhow::bail!("the plan for {name} must be a positive number");
+            }
+        }
         let accounts = config.accounts(&paths);
         config.unit(&accounts)?;
         Ok(Context {

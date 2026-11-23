@@ -39,8 +39,21 @@ impl Env {
         cmd
     }
 
-    /// A fresh cache entry: `five` and `week` percent used, week resets in 3 days.
+    /// A fresh cache entry and a login: `five` and `week` percent used, week resets in 3 days.
     fn cache(&self, name: &str, five: f64, week: f64) {
+        self.cache_only(name, five, week);
+        let dir = if name == "acme" {
+            self.path(".claude")
+        } else {
+            self.path(&format!(".local/share/tally/{name}"))
+        };
+        fs::create_dir_all(&dir).unwrap();
+        let login = r#"{"claudeAiOauth":{"accessToken":"t","refreshToken":"r","expiresAt":99999999999999}}"#;
+        fs::write(dir.join(".credentials.json"), login).unwrap();
+    }
+
+    /// A fresh cache entry with no login behind it.
+    fn cache_only(&self, name: &str, five: f64, week: f64) {
         let now = jiff::Timestamp::now();
         let in_hours = |h: i64| jiff::Timestamp::from_second(now.as_second() + h * 3600).unwrap();
         let body = serde_json::json!({
@@ -262,7 +275,7 @@ fn remove_off_a_tty_keeps_the_folder() {
 
 #[test]
 fn remove_never_touches_the_main_folder() {
-    let env = Env::new(CONFIG);
+    let env = Env::new(&CONFIG.replace("unit = \"acme\"", "unit = \"personal\""));
     env.tally().args(["remove", "acme"]).assert().success();
     assert!(env.path(".claude").is_dir());
 }
@@ -285,4 +298,88 @@ fn init_fish_lists_accounts() {
 function cl-acme --wraps claude --description 'claude as acme'\n    tally run acme -- $argv\nend\n\
 function cl-personal --wraps claude --description 'claude as personal'\n    tally run personal -- $argv\nend\n",
     );
+}
+
+#[test]
+fn fresh_cache_without_a_login_is_not_picked() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 90.0, 90.0);
+    env.cache_only("personal", 0.0, 0.0);
+    env.tally()
+        .arg("pick")
+        .assert()
+        .success()
+        .stdout("acme\n");
+}
+
+#[test]
+fn run_named_logged_out_warns_and_still_runs() {
+    let env = Env::new(CONFIG);
+    env.tally()
+        .args(["run", "personal", "--", "hi"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TALLY_ACCOUNT=personal\nhi\n"))
+        .stderr(predicate::str::contains(
+            "tally: personal is not logged in → tally login personal",
+        ));
+}
+
+#[test]
+fn errors_are_terse() {
+    let env = Env::new(CONFIG);
+    env.tally().args(["run", "nope"]).assert().failure().stderr(
+        predicate::str::starts_with("tally: ").and(predicate::str::contains("Error:").not()),
+    );
+}
+
+#[test]
+fn plan_in_config_must_be_positive() {
+    let env = Env::new("[account.a]\nplan = 0\n");
+    env.tally()
+        .arg("pick")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "the plan for a must be a positive number",
+        ));
+}
+
+#[test]
+fn add_refuses_the_implicit_main() {
+    let env = Env::new("");
+    env.tally()
+        .args(["add", "main"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("account 'main' is already in"));
+    assert!(!env.path(".config/tally/config.toml").exists());
+}
+
+#[test]
+fn remove_refuses_the_unit_account() {
+    let env = Env::new(CONFIG);
+    env.tally()
+        .args(["remove", "acme"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "acme is the unit account; change unit in ",
+        ));
+    assert_eq!(
+        fs::read_to_string(env.path(".config/tally/config.toml")).unwrap(),
+        CONFIG
+    );
+}
+
+#[test]
+fn remove_a_non_unit_account_leaves_pick_working() {
+    let env = Env::new(CONFIG);
+    env.cache("acme", 10.0, 10.0);
+    env.tally().args(["remove", "personal"]).assert().success();
+    env.tally()
+        .arg("pick")
+        .assert()
+        .success()
+        .stdout("acme\n");
 }

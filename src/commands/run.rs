@@ -5,6 +5,7 @@ use std::process::Command;
 
 use super::{claude_bin, snapshot};
 use crate::context::Context;
+use crate::credentials;
 use crate::links;
 use crate::pick::Rule;
 use crate::usage::Http;
@@ -24,6 +25,13 @@ pub fn run(ctx: &Context, account: Option<&str>, args: &[String]) -> Result<()> 
         None => pick_one(ctx),
     };
     let account = ctx.account(&name).expect("checked above");
+
+    if !matches!(credentials::read(&account.dir), Ok(Some(_))) {
+        eprintln!(
+            "tally: {name} is not logged in → tally login {name}",
+            name = account.name
+        );
+    }
 
     let mut cmd = Command::new(claude_bin());
     cmd.args(args).env("TALLY_ACCOUNT", &account.name);

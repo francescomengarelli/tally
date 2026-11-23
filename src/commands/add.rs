@@ -9,6 +9,12 @@ pub fn run(ctx: &Context, name: &str, plan: Option<f64>) -> Result<()> {
     if plan.is_some_and(|p| !p.is_finite() || p <= 0.0) {
         bail!("the plan must be a positive number");
     }
+    if ctx.account(name).is_some() {
+        bail!(
+            "account '{name}' is already in {}",
+            ctx.paths.config.display()
+        );
+    }
     config_edit::add_account(&ctx.paths.config, name, plan)?;
     eprintln!("tally: added {name}");
 
