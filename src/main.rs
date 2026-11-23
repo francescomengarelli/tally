@@ -8,5 +8,7 @@ mod credentials;
 mod maths;
 #[allow(dead_code)]
 mod pick;
+#[allow(dead_code)]
+mod usage;
 
 fn main() {}
