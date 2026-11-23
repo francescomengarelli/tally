@@ -49,6 +49,8 @@ pub enum Commands {
     Statusline,
     /// Print shell functions for `| source`.
     Init { shell: Shell },
+    /// Upgrade tally to the latest release.
+    SelfUpgrade,
     /// Refresh the cache in the background.
     #[command(hide = true)]
     Refresh,

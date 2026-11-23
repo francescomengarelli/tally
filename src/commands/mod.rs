@@ -6,6 +6,7 @@ pub mod pick;
 pub mod refresh;
 pub mod remove;
 pub mod run;
+pub mod self_upgrade;
 pub mod statusline;
 pub mod summary;
 

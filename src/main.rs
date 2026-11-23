@@ -35,6 +35,10 @@ fn main() {
 }
 
 fn real_main(cli: Cli) -> Result<()> {
+    // needs no config: it must work even when the config is broken
+    if let Some(Commands::SelfUpgrade) = cli.command {
+        return commands::self_upgrade::run();
+    }
     let ctx = Context::load(cli.config)?;
     match cli.command {
         Some(Commands::Run { account, args }) => {
@@ -51,6 +55,6 @@ fn real_main(cli: Cli) -> Result<()> {
         }
         None => commands::summary::run(&ctx),
         // handled in main: they never fail
-        Some(Commands::Notice | Commands::Statusline) => Ok(()),
+        Some(Commands::Notice | Commands::Statusline | Commands::SelfUpgrade) => Ok(()),
     }
 }
