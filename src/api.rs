@@ -35,12 +35,32 @@ fn null_as_zero<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error>
 }
 
 /// A refresh response. The refresh token is only present when it rotated.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct Tokens {
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: Option<String>,
+    /// Seconds the access token lives; Claude's tokens last 8 hours.
+    #[serde(default = "eight_hours")]
     pub expires_in: i64,
+}
+
+fn eight_hours() -> i64 {
+    8 * 60 * 60
+}
+
+// Never print the tokens, not even through `{:?}`.
+impl std::fmt::Debug for Tokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Tokens")
+            .field("access_token", &"<redacted>")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -172,6 +192,23 @@ mod tests {
         assert_eq!(t.access_token, "a");
         assert_eq!(t.refresh_token.as_deref(), Some("r"));
         assert_eq!(t.expires_in, 28800);
+    }
+
+    #[test]
+    fn missing_expires_in_defaults_to_eight_hours() {
+        let t = parse_tokens(r#"{"access_token":"a","refresh_token":"r"}"#).unwrap();
+        assert_eq!(t.expires_in, 28800);
+    }
+
+    #[test]
+    fn tokens_debug_hides_secrets() {
+        let t = parse_tokens(
+            r#"{"access_token":"sekret-access","refresh_token":"sekret-refresh","expires_in":1}"#,
+        )
+        .unwrap();
+        let shown = format!("{t:?}");
+        assert!(!shown.contains("sekret"));
+        assert!(shown.contains("<redacted>"));
     }
 
     #[test]
