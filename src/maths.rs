@@ -37,11 +37,22 @@ fn left(w: &Window, at: Timestamp) -> f64 {
     }
 }
 
+/// The week's next reset: one that has passed rolls forward by whole weeks.
+fn next_week_reset(w: &Window, at: Timestamp) -> Option<Timestamp> {
+    let r = w.resets_at?;
+    if r > at {
+        return Some(r);
+    }
+    let week = 7 * 86400;
+    let steps = (at.as_second() - r.as_second()) / week + 1;
+    Timestamp::from_second(r.as_second() + steps * week).ok()
+}
+
 pub fn metrics(usage: &Usage, weight: f64, five_hour_share: f64, at: Timestamp) -> Metrics {
     let seven = usage.seven_day.as_ref();
     let week_left = seven.map_or(100.0, |w| left(w, at));
     let week = week_left * weight;
-    let reset = seven.and_then(|w| w.resets_at);
+    let reset = seven.and_then(|w| next_week_reset(w, at));
     let days_to_reset = reset.map_or(7.0, |r| (r.as_second() - at.as_second()) as f64 / DAY);
     let day = week / days_to_reset.max(1.0);
 
@@ -49,7 +60,8 @@ pub fn metrics(usage: &Usage, weight: f64, five_hour_share: f64, at: Timestamp) 
         Some(w) => {
             let five = left(w, at) * five_hour_share * weight;
             if five < week {
-                (five, w.resets_at)
+                // a five-hour window that has reset starts again on first use
+                (five, w.resets_at.filter(|r| *r > at))
             } else {
                 (week, reset)
             }
@@ -125,6 +137,7 @@ mod tests {
         close(m.week, 6.0);
         close(m.now, 6.0);
         close(m.day, 3.158);
+        assert_eq!(m.binding_reset, win(94.0, (1.9 * DAY) as i64).resets_at);
     }
 
     #[test]
@@ -134,6 +147,7 @@ mod tests {
         close(m.week, 160.0);
         close(m.day, 22.857);
         close(m.capacity, 160.0);
+        assert_eq!(m.binding_reset, win(0.0, 7 * 86400).resets_at);
     }
 
     #[test]
@@ -158,11 +172,73 @@ mod tests {
 
     #[test]
     fn past_reset_counts_as_unused() {
+        let old = win(94.0, -3600);
         let u = Usage {
             five_hour: None,
-            seven_day: Some(win(94.0, -3600)),
+            seven_day: Some(old.clone()),
         };
-        close(metrics(&u, 1.0, 0.18, at()).week, 100.0);
+        let m = metrics(&u, 2.0, 0.18, at());
+        close(m.week, 200.0);
+        close(m.days_to_reset, 7.0 - 1.0 / 24.0);
+        let next = Timestamp::from_second(old.resets_at.unwrap().as_second() + 7 * 86400).unwrap();
+        assert_eq!(m.binding_reset, Some(next));
+    }
+
+    #[test]
+    fn past_reset_advances_whole_weeks() {
+        let u = Usage {
+            five_hour: None,
+            seven_day: Some(win(94.0, -(15 * 86400))),
+        };
+        let m = metrics(&u, 1.0, 0.18, at());
+        close(m.days_to_reset, 6.0);
+    }
+
+    #[test]
+    fn five_hour_past_reset_is_unused_without_reset() {
+        let u = Usage {
+            five_hour: Some(win(90.0, -3600)),
+            seven_day: Some(win(0.0, 7 * 86400)),
+        };
+        let m = metrics(&u, 1.0, 0.18, at());
+        close(m.now, 18.0);
+        assert_eq!(m.binding_reset, None);
+    }
+
+    #[test]
+    fn five_hour_scales_with_weight() {
+        let u = Usage {
+            five_hour: Some(win(90.0, 3600)),
+            seven_day: Some(win(0.0, 7 * 86400)),
+        };
+        close(metrics(&u, 2.0, 0.18, at()).now, 3.6);
+    }
+
+    #[test]
+    fn missing_seven_day_is_unused_for_a_week() {
+        let u = Usage {
+            five_hour: None,
+            seven_day: None,
+        };
+        let m = metrics(&u, 2.0, 0.18, at());
+        close(m.week, 200.0);
+        close(m.days_to_reset, 7.0);
+        close(m.day, 200.0 / 7.0);
+        assert_eq!(m.binding_reset, None);
+    }
+
+    #[test]
+    fn seven_day_without_reset_time_counts_seven_days() {
+        let u = Usage {
+            five_hour: None,
+            seven_day: Some(Window {
+                utilization: 50.0,
+                resets_at: None,
+            }),
+        };
+        let m = metrics(&u, 1.0, 0.18, at());
+        close(m.week, 50.0);
+        close(m.days_to_reset, 7.0);
     }
 
     #[test]
