@@ -4,5 +4,7 @@ mod api;
 mod config;
 #[allow(dead_code)]
 mod maths;
+#[allow(dead_code)]
+mod pick;
 
 fn main() {}
