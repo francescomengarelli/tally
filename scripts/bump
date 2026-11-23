@@ -1,0 +1,158 @@
+#!/bin/sh
+cleanup() {
+
+    # only on failure
+    if [ $? -ne 0 ]; then
+        [ -f "$CARGO_BAK_PATH" ] && mv "$CARGO_BAK_PATH" "$CARGO_PATH"
+    else
+        rm -f "$CARGO_BAK_PATH" || true
+    fi
+
+    rm -f "$CARGO_TMP_PATH" || true
+    rm -f "$CMD_LOG_PATH" || true
+}
+
+trap cleanup EXIT
+
+perror() {
+    fmt=$1
+    shift
+    printf "ERROR: $fmt\n" "$@" >&2
+}
+
+pusage() {
+    printf "%s\n" "$USAGE"
+}
+
+run() {
+    for arg in "$@"; do
+        case "$arg" in
+            *\ *) printf '"%s" ' "$arg" ;;
+            *)    printf '%s ' "$arg" ;;
+        esac
+    done
+    printf '\n'
+    "$@" >&2
+}
+
+try() {
+    if ! run "$@" 2>"$CMD_LOG_PATH"; then
+        perror "$*"
+        cat "$CMD_LOG_PATH" >&2
+        exit 1
+    fi
+}
+
+log() {
+    cat "$CMD_LOG_PATH"
+}
+
+if ! REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
+    perror "you are outside of the repository"
+    exit 1
+fi
+
+CARGO_LOCK_PATH="$REPO_ROOT/Cargo.lock"
+
+CARGO_PATH="$REPO_ROOT/Cargo.toml"
+CARGO_TMP_PATH="$CARGO_PATH.bump.tmp"
+CARGO_BAK_PATH="$CARGO_PATH.bak"
+CMD_LOG_PATH="$REPO_ROOT/bump_cmd.log"
+
+
+USAGE="Usage: bump [major|minor|patch] <message>"
+
+if [ -z "$1" ] || [ -z "$2" ]; then
+    perror "missing argument" && pusage
+    exit 1
+fi
+
+
+BUMP=$1
+MESSAGE=$2
+
+case "$BUMP" in
+    major) ;;
+    minor) ;;
+    patch) ;;
+    *) 
+        perror "invalid target %s" "$BUMP" && pusage
+        exit 1
+        ;;
+esac
+
+STATUS=$(git status "$REPO_ROOT" --porcelain)
+
+if [ -n "$STATUS" ]; then
+    perror "commit all changes before bumping the version"
+    exit 1
+fi
+
+VERSION_LN=$(sed -n '/^\[package\]/{
+:a
+n
+/^[[:space:]]*version[[:space:]]*=/{
+p
+q
+}
+/\[/q
+ba
+}' "$CARGO_PATH")
+VERSION=$(echo "$VERSION_LN" | sed  's/.*"\([^"]*\)"/\1/')
+
+if [ -z "$VERSION" ]; then
+    perror "version not found in Cargo.toml"
+    exit 1
+fi
+
+get_number() {
+    echo "$VERSION" | cut -d'.' -f$1
+}
+
+MAJOR=$(get_number 1)
+MINOR=$(get_number 2)
+PATCH=$(get_number 3)
+
+if [ -z "$MAJOR" ] || [ -z "$MINOR" ] || [ -z "$PATCH" ]; then
+    perror "invalid version string in Cargo.toml"
+    exit 1
+fi
+
+case "$BUMP" in
+    major)
+        MAJOR=$(( MAJOR + 1 ))
+        MINOR=0
+        PATCH=0
+        ;;
+    minor)
+        MINOR=$(( MINOR + 1 ))
+        PATCH=0
+        ;;
+    patch)
+        PATCH=$(( PATCH + 1 ))
+        ;;
+esac
+
+BUMPED="${MAJOR}.${MINOR}.${PATCH}"
+
+printf "bumping from %s to %s\n" "$VERSION" "$BUMPED"
+
+OLD="version = \"$VERSION\""
+NEW="version = \"$BUMPED\""
+sed "/\[package\]/,/^\[.*/s/^$OLD/$NEW/" "$CARGO_PATH" > "$CARGO_TMP_PATH"
+
+
+# update Cargo.toml
+mv "$CARGO_PATH" "$CARGO_BAK_PATH"
+mv "$CARGO_TMP_PATH" "$CARGO_PATH"
+
+
+try cargo update
+
+try git add "$CARGO_PATH" "$CARGO_LOCK_PATH" 
+
+try git commit -m "chore: bump to v$BUMPED" 
+
+try git tag "v$BUMPED" -m "$MESSAGE" 
+
+
