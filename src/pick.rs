@@ -156,6 +156,15 @@ mod tests {
     }
 
     #[test]
+    fn min_session_boundary_is_eligible() {
+        let c = [
+            cand("a", m(3.0, 50.0), false),
+            cand("b", m(20.0, 10.0), false),
+        ];
+        assert_eq!(picked(&c, 3.0), ("a".into(), Rule::MostUrgent));
+    }
+
+    #[test]
     fn empty_is_none() {
         assert_eq!(pick(&[], 3.0), None);
     }
