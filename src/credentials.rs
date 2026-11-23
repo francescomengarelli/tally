@@ -13,7 +13,8 @@ const FILE: &str = ".credentials.json";
 pub struct Oauth {
     pub access_token: String,
     pub refresh_token: Option<String>,
-    /// Milliseconds since the epoch.
+    /// Milliseconds since the epoch; a login without one never counts as
+    /// expired, so a 401 decides instead of a rotation on every call.
     pub expires_at: i64,
     pub rate_limit_tier: Option<String>,
 }
@@ -48,7 +49,10 @@ pub fn read(dir: &Path) -> Result<Option<Oauth>> {
     Ok(Some(Oauth {
         access_token: access_token.to_string(),
         refresh_token: text("refreshToken"),
-        expires_at: o.get("expiresAt").and_then(Value::as_i64).unwrap_or(0),
+        expires_at: o
+            .get("expiresAt")
+            .and_then(Value::as_i64)
+            .unwrap_or(i64::MAX),
         rate_limit_tier: text("rateLimitTier"),
     }))
 }
@@ -74,16 +78,31 @@ pub fn store_tokens(
     }
     o.insert("expiresAt".into(), expires_at.into());
 
-    let mut tmp = tempfile::NamedTempFile::new_in(dir)
-        .with_context(|| format!("i couldn't write in {}", dir.display()))?;
+    // A link stays a link: the new file replaces what it points at.
+    let target = match path.symlink_metadata() {
+        Ok(m) if m.is_symlink() => fs::canonicalize(&path)
+            .with_context(|| format!("i couldn't resolve {}", path.display()))?,
+        _ => path.clone(),
+    };
+    let target_dir = target.parent().unwrap_or(dir);
+
+    let mut tmp = tempfile::NamedTempFile::new_in(target_dir)
+        .with_context(|| format!("i couldn't write in {}", target_dir.display()))?;
     tmp.write_all(serde_json::to_string(&v)?.as_bytes())
         .with_context(|| format!("i couldn't write {}", path.display()))?;
     tmp.as_file()
         .set_permissions(fs::Permissions::from_mode(0o600))
         .with_context(|| format!("i couldn't protect {}", path.display()))?;
-    tmp.persist(&path)
+    // On disk before the rename, so a crash can't leave an empty login.
+    tmp.as_file()
+        .sync_all()
+        .with_context(|| format!("i couldn't write {}", path.display()))?;
+    tmp.persist(&target)
         .map_err(|e| e.error)
         .with_context(|| format!("i couldn't replace {}", path.display()))?;
+    if let Ok(d) = fs::File::open(target_dir) {
+        let _ = d.sync_all();
+    }
     Ok(())
 }
 
@@ -183,6 +202,42 @@ mod tests {
             1,
             "no temp file left"
         );
+    }
+
+    #[test]
+    fn missing_expiry_is_not_expired() {
+        let d = tempfile::tempdir().unwrap();
+        write(d.path(), &json!({"claudeAiOauth": {"accessToken": "a"}}));
+        assert_eq!(read(d.path()).unwrap().unwrap().expires_at, i64::MAX);
+    }
+
+    #[test]
+    fn store_through_a_symlink_keeps_the_link() {
+        let d = tempfile::tempdir().unwrap();
+        let real = tempfile::tempdir().unwrap();
+        write(real.path(), &full());
+        std::os::unix::fs::symlink(
+            real.path().join(".credentials.json"),
+            d.path().join(".credentials.json"),
+        )
+        .unwrap();
+        store_tokens(d.path(), "new-access", Some("new-refresh"), 2000).unwrap();
+        let link = d.path().join(".credentials.json");
+        assert!(link.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(
+            stored(real.path())["claudeAiOauth"]["accessToken"],
+            "new-access"
+        );
+        assert_eq!(
+            stored(d.path())["claudeAiOauth"]["refreshToken"],
+            "new-refresh"
+        );
+        assert_eq!(
+            fs::read_dir(real.path()).unwrap().count(),
+            1,
+            "no temp file left"
+        );
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 1);
     }
 
     #[test]
