@@ -457,6 +457,68 @@ fn statusline_reads_config_dir_account() {
         .stdout(predicate::str::starts_with("acme · now "));
 }
 
+const TWO_MAX: &str = "unit = \"acme\"\n\n[account.acme]\ndir = \"~/.claude\"\nplan = 5.0\n\n[account.personal]\nplan = 5.0\n";
+
+const SESSION: &str = r#"{"session_id":"3f2a91c0-7d4e-4b1a-9c2e-5a6b7c8d9e01"}"#;
+
+#[test]
+fn statusline_suggests_resuming_when_out_of_room() {
+    let env = Env::new(TWO_MAX);
+    env.cache("acme", 100.0, 0.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env("TALLY_ACCOUNT", "acme")
+        .arg("statusline")
+        .write_stdin(SESSION)
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(
+            "  →  cl-personal -r 3f2a91c0-7d4e-4b1a-9c2e-5a6b7c8d9e01\n",
+        ));
+}
+
+#[test]
+fn statusline_suggests_resuming_where_much_more_expires() {
+    let env = Env::new(TWO_MAX);
+    env.cache("acme", 0.0, 70.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env("TALLY_ACCOUNT", "acme")
+        .arg("statusline")
+        .write_stdin(SESSION)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("→  cl-personal -r 3f2a"));
+}
+
+#[test]
+fn statusline_says_nothing_when_the_switch_is_not_worth_it() {
+    let env = Env::new(TWO_MAX);
+    env.cache("acme", 0.0, 10.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env("TALLY_ACCOUNT", "acme")
+        .arg("statusline")
+        .write_stdin(SESSION)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("→").not());
+}
+
+#[test]
+fn statusline_drops_a_session_id_that_could_draw_on_screen() {
+    let env = Env::new(TWO_MAX);
+    env.cache("acme", 100.0, 0.0);
+    env.cache("personal", 0.0, 0.0);
+    env.tally()
+        .env("TALLY_ACCOUNT", "acme")
+        .arg("statusline")
+        .write_stdin(r#"{"session_id":"x\u001b[2J"}"#)
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("  →  cl-personal\n"));
+}
+
 #[test]
 fn statusline_without_data_prints_nothing_and_succeeds() {
     let env = Env::new(CONFIG);

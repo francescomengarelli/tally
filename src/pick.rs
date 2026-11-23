@@ -61,6 +61,31 @@ pub fn pick(cands: &[Candidate], min_session: f64) -> Option<Pick> {
     pick(roomiest.0, Rule::NoneEligible)
 }
 
+/// Why the account in use should give way to the picked one.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Switch {
+    /// The current one has no room for a session; the picked one has.
+    Needed,
+    /// Both have room, but the picked one has much more to spend per day.
+    Better,
+}
+
+/// How many times the current day rate the picked one needs to be worth a
+/// switch, which costs re-reading the session on the new account.
+const BETTER_BY: f64 = 1.5;
+
+pub fn switch(current: &Metrics, picked: &Metrics, min_session: f64) -> Option<Switch> {
+    if picked.now < min_session {
+        None
+    } else if current.now < min_session {
+        Some(Switch::Needed)
+    } else if picked.day > current.day && picked.day >= BETTER_BY * current.day {
+        Some(Switch::Better)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +192,30 @@ mod tests {
     #[test]
     fn empty_is_none() {
         assert_eq!(pick(&[], 3.0), None);
+    }
+
+    fn sw(cur: (f64, f64), to: (f64, f64)) -> Option<Switch> {
+        switch(&m(cur.0, cur.1).unwrap(), &m(to.0, to.1).unwrap(), 3.0)
+    }
+
+    #[test]
+    fn switch_needed_when_current_has_no_room() {
+        assert_eq!(sw((2.0, 50.0), (20.0, 10.0)), Some(Switch::Needed));
+    }
+
+    #[test]
+    fn no_switch_when_picked_has_no_room_either() {
+        assert_eq!(sw((1.0, 5.0), (2.0, 10.0)), None);
+    }
+
+    #[test]
+    fn switch_better_from_one_and_a_half_times_the_day() {
+        assert_eq!(sw((20.0, 10.0), (20.0, 15.0)), Some(Switch::Better));
+        assert_eq!(sw((20.0, 10.0), (20.0, 14.0)), None);
+    }
+
+    #[test]
+    fn no_switch_from_an_empty_week_to_another() {
+        assert_eq!(sw((20.0, 0.0), (20.0, 0.0)), None);
     }
 }

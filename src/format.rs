@@ -5,6 +5,7 @@ use jiff::{Timestamp, tz::TimeZone};
 use crate::api::Window;
 use crate::commands::{Row, Snapshot};
 use crate::maths::{self, Pace};
+use crate::pick::Switch;
 use crate::usage::Status;
 
 const DIM: &str = "\x1b[90m";
@@ -127,9 +128,16 @@ pub fn notice(s: &Snapshot, color: bool) -> Option<String> {
 }
 
 /// One line for Claude Code's status line, from the totals.
-pub fn statusline(account: &str, s: &Snapshot, color: bool) -> String {
+/// A suggestion to resume this session on another account.
+pub struct Hint<'a> {
+    pub to: &'a str,
+    pub session: Option<&'a str>,
+    pub switch: Switch,
+}
+
+pub fn statusline(account: &str, s: &Snapshot, hint: Option<&Hint>, color: bool) -> String {
     let t = &s.totals;
-    Line::new(color)
+    let line = Line::new(color)
         .val(account, Some(BOLD))
         .dim(" · now ")
         .val(&pct(t.now), now_colour(t.now, s.min_session))
@@ -140,8 +148,19 @@ pub fn statusline(account: &str, s: &Snapshot, color: bool) -> String {
             &format!("{}/day", pct(t.day)),
             pace_colour(t.day, t.steady()),
         )
-        .dim(&format!(" ({})", pct(t.steady())))
-        .out
+        .dim(&format!(" ({})", pct(t.steady())));
+    let Some(h) = hint else {
+        return line.out;
+    };
+    let cmd = match h.session {
+        Some(id) => format!("cl-{} -r {id}", h.to),
+        None => format!("cl-{}", h.to),
+    };
+    let code = match h.switch {
+        Switch::Needed => RED,
+        Switch::Better => YELLOW,
+    };
+    line.dim("  →  ").val(&cmd, Some(code)).out
 }
 
 /// Percent used in a window; one that has already reset counts as unused.
@@ -439,9 +458,29 @@ mod tests {
     #[test]
     fn statusline_exact() {
         assert_eq!(
-            statusline("personal", &two(), false),
+            statusline("personal", &two(), None, false),
             "personal · now 166% · week 166% · 26%/day (37%)"
         );
+    }
+
+    #[test]
+    fn statusline_suggests_resuming_elsewhere() {
+        let hint = Hint {
+            to: "personal",
+            session: Some("3f2a-e91c"),
+            switch: Switch::Needed,
+        };
+        assert_eq!(
+            statusline("acme", &two(), Some(&hint), false),
+            "acme · now 166% · week 166% · 26%/day (37%)  →  cl-personal -r 3f2a-e91c"
+        );
+        let hint = Hint {
+            session: None,
+            switch: Switch::Better,
+            ..hint
+        };
+        let line = statusline("acme", &two(), Some(&hint), true);
+        assert!(line.ends_with("\x1b[33mcl-personal\x1b[0m"));
     }
 
     #[test]
