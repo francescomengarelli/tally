@@ -31,6 +31,7 @@ impl Net for Http {
 
 #[derive(Debug, Clone)]
 pub enum Status {
+    #[allow(dead_code)] // Task 10 shows fetched_at and stale
     Ready {
         usage: Usage,
         fetched_at: Timestamp,

@@ -68,7 +68,7 @@ pub struct AccountEntry {
     pub plan: Option<f64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Account {
     pub name: String,
     pub dir: PathBuf,

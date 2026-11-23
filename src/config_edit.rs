@@ -3,9 +3,6 @@ use std::fs;
 use std::path::Path;
 use toml_edit::{DocumentMut, Item, Table, value};
 
-/// The file a machine with no config gets: the implicit main account.
-const MAIN_ONLY: &str = "[account.main]\ndir = \"~/.claude\"\n";
-
 /// Account names: `^[a-z0-9][a-z0-9-]*$`.
 pub fn validate_name(name: &str) -> Result<()> {
     let mut chars = name.chars();

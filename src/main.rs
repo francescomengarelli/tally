@@ -1,18 +1,35 @@
-#[allow(dead_code)]
 mod api;
-#[allow(dead_code)]
+mod cli;
+mod commands;
 mod config;
-#[allow(dead_code)]
 mod config_edit;
-#[allow(dead_code)]
+mod context;
 mod credentials;
-#[allow(dead_code)]
 mod links;
-#[allow(dead_code)]
 mod maths;
-#[allow(dead_code)]
 mod pick;
-#[allow(dead_code)]
 mod usage;
 
-fn main() {}
+use anyhow::Result;
+use clap::Parser;
+use cli::{Cli, Commands};
+use context::Context;
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let ctx = Context::load(cli.config)?;
+    match cli.command {
+        Some(Commands::Run { account, args }) => {
+            commands::run::run(&ctx, account.as_deref(), &args)
+        }
+        Some(Commands::Pick { why }) => commands::pick::run(&ctx, why),
+        Some(Commands::Add { name, plan }) => commands::add::run(&ctx, &name, plan),
+        Some(Commands::Remove { name }) => commands::remove::run(&ctx, &name),
+        Some(Commands::Login { account }) => commands::login::run(&ctx, &account),
+        Some(Commands::Init { shell }) => commands::init::run(&ctx, shell),
+        // Task 10: the summary, notice, statusline and refresh.
+        None | Some(Commands::Notice | Commands::Statusline | Commands::Refresh) => {
+            anyhow::bail!("not built yet")
+        }
+    }
+}

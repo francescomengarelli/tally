@@ -1,0 +1,6 @@
+#!/bin/sh
+echo "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"
+echo "TALLY_ACCOUNT=$TALLY_ACCOUNT"
+for a in "$@"; do
+    echo "$a"
+done

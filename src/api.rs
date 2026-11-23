@@ -67,6 +67,7 @@ impl std::fmt::Debug for Tokens {
 pub enum ApiError {
     /// The token was refused: log in again (or refresh).
     Unauthorized,
+    #[allow(dead_code)] // carried for Debug output
     Other(anyhow::Error),
 }
 
