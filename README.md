@@ -138,6 +138,17 @@ else the main one):
 personal · now 72% · week 206% · 31%/day (37%)
 ```
 
+When another account is worth switching to, it ends with the command that
+resumes this session there:
+
+```
+acme · now 2% · week 40% · 13%/day (37%)  →  cl-personal -r 3f2a91c0-…
+```
+
+Red means this account has no room left for a session, yellow that the other
+one has at least 1.5 times as much to spend per day. Switching re-reads the
+whole session on the new account, so it is best done between tasks.
+
 It prints nothing until there is cached data, and reads only the cache: a
 background refresh keeps it fresh.
 

@@ -209,6 +209,17 @@ was started without tally:
 personal · now 72% · week 206% · 31%/day (37%)
 ```
 
+When the picked account is not the one running, and switching is worth it,
+the line ends with `  →  cl-<picked> -r <session id>`, the session id read
+from the JSON Claude Code pipes in (letters, digits and dashes only; without
+one, just `cl-<picked>`). Worth it means:
+
+- **red:** the running account has `now < min_session` and the picked one
+  has `now ≥ min_session`;
+- **yellow:** both have room and the picked one's `day` is at least 1.5 times
+  the running one's. Below that, re-reading the session on the new account
+  costs more than it gains.
+
 `tally` with no command prints one row per account (plan, raw 5h and week %,
 resets, `now`, `week`, `/day`, `steady`) and a totals row.
 
