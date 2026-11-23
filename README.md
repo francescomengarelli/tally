@@ -48,6 +48,10 @@ already read in `/usage`. Other plans are weighted by their multiple of Pro
 - `week`: what is left of the week, summed over accounts
 - `/day`: the daily rate that uses the week up before it resets
 
+A multiple shown as `1x?` means the plan was guessed because the login's tier
+is unknown: set `plan` for that account. Team Premium seats report no clear
+tier, so give them `plan = 6.25`.
+
 ### Picking
 
 Unused weekly usage is lost at reset, so tally spends first what expires
@@ -75,6 +79,9 @@ plan = 6.25              # multiple of Pro; overrides what the login says
 [account.personal]       # dir defaults to ~/.local/share/tally/personal
 ```
 
+A `dir` may start with `~` or `$HOME`. It must be a folder of its own: not
+home, not a parent of `~/.claude`, and not shared with another account.
+
 ## Commands
 
 | Command                        | What it does                                        |
@@ -101,8 +108,9 @@ tally init fish | source
 ```
 
 This defines `cl` (`tally run`), `cl-<name>` for each account, and
-completions that wrap claude's. Call `tally notice` from the same file, once
-per kitty OS window, to print the startup line:
+completions that wrap claude's. Call `tally notice` to print the startup line. The
+once-per-kitty-window check lives in your shell config (your dotfiles), not in
+tally:
 
 ```
  claude: now 72% · week 206% left (of 260%) · 31%/day  →  cl (personal)
@@ -116,11 +124,23 @@ In Claude Code's `settings.json`:
 "statusLine": { "type": "command", "command": "tally statusline" }
 ```
 
-It prints, for the account that is running:
+It prints the totals over all accounts, labelled with the account that is
+running (`TALLY_ACCOUNT`, else the account whose folder is `CLAUDE_CONFIG_DIR`,
+else the main one):
 
 ```
 personal · now 72% · week 206% · 31%/day
 ```
+
+It prints nothing until there is cached data, and reads only the cache: a
+background refresh keeps it fresh.
+
+## Troubleshooting
+
+- Background refreshes write their errors to `~/.cache/tally/refresh.log`.
+- A login the server has refused shows as "to log in" until you run
+  `tally login <account>`.
+- Every command takes a global `--config <file>` to use another config file.
 
 ## New machine
 
