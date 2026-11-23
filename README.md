@@ -47,6 +47,12 @@ already read in `/usage`. Other plans are weighted by their multiple of Pro
   window and the week)
 - `week`: what is left of the week, summed over accounts
 - `/day`: the daily rate that uses the week up before it resets
+- `steady`: the week spread evenly (capacity / 7), what a fresh week allows per day
+
+Numbers are coloured: `/day` is green above steady (usage that resets soon,
+spend it) and red below it (the week went early, go easy); `now` is red when
+there isn't room for a session and yellow when it's tight; `week left` goes
+yellow and red as the week runs out. Set `NO_COLOR` to turn colours off.
 
 A multiple shown as `1x?` means the plan was guessed because the login's tier
 is unknown: set `plan` for that account. Team Premium seats report no clear
@@ -113,7 +119,7 @@ once-per-kitty-window check lives in your shell config (your dotfiles), not in
 tally:
 
 ```
- claude: now 72% · week 206% left (of 260%) · 31%/day  →  cl (personal)
+ claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  cl (personal)
 ```
 
 ### Status line
@@ -129,7 +135,7 @@ running (`TALLY_ACCOUNT`, else the account whose folder is `CLAUDE_CONFIG_DIR`,
 else the main one):
 
 ```
-personal · now 72% · week 206% · 31%/day
+personal · now 72% · week 206% · 31%/day (37%)
 ```
 
 It prints nothing until there is cached data, and reads only the cache: a

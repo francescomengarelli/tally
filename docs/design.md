@@ -199,18 +199,22 @@ only where a session can actually run.
 dotfiles):
 
 ```
- claude: now 72% · week 206% left (of 260%) · 31%/day  →  cl (personal)
+ claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  cl (personal)
 ```
 
 `statusline`, from `TALLY_ACCOUNT`, or from `CLAUDE_CONFIG_DIR` when Claude
 was started without tally:
 
 ```
-personal · now 72% · week 206% · 31%/day
+personal · now 72% · week 206% · 31%/day (37%)
 ```
 
 `tally` with no command prints one row per account (plan, raw 5h and week %,
-resets, `now`, `week`, `/day`) and a totals row.
+resets, `now`, `week`, `/day`, `steady`) and a totals row.
+
+`steady` is `capacity / 7`. Colours: `/day` green at ≥ 1.2 × steady, red at
+≤ 0.8 × steady; `now` red below `min_session`, yellow below twice that;
+`week` red below 15% of capacity, yellow below 35%. `NO_COLOR` turns them off.
 
 Colours only when stdout is a terminal.
 
