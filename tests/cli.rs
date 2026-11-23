@@ -470,3 +470,21 @@ fn summary_prints_a_table_with_a_total() {
             .and(predicate::str::contains("total")),
     );
 }
+
+#[test]
+fn refresh_exits_quietly_when_another_refresh_holds_the_lock() {
+    let env = Env::new(CONFIG);
+    let cache = env.path(".cache/tally");
+    fs::create_dir_all(&cache).unwrap();
+    let held = fs::File::create(cache.join("refresh.lock")).unwrap();
+    held.lock().unwrap();
+    env.tally()
+        .arg("refresh")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+    assert!(!cache.join("refresh.stamp").exists());
+    drop(held);
+    env.tally().arg("refresh").assert().success();
+    assert!(cache.join("refresh.stamp").exists());
+}

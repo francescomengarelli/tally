@@ -10,6 +10,10 @@ pub mod statusline;
 pub mod summary;
 
 use std::ffi::OsString;
+use std::fs;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use jiff::{SignedDuration, Timestamp};
 
@@ -44,7 +48,14 @@ pub struct Snapshot {
 
 /// The one place that turns statuses into metrics, totals and a pick.
 pub fn snapshot(ctx: &Context, max_age: SignedDuration, net: &dyn Net) -> Snapshot {
-    let statuses = usage::gather(&ctx.accounts, &ctx.paths.cache, max_age, net);
+    build(
+        ctx,
+        usage::gather(&ctx.accounts, &ctx.paths.cache, max_age, net),
+    )
+}
+
+/// The same from statuses already gathered.
+pub fn build(ctx: &Context, statuses: Vec<Status>) -> Snapshot {
     let at = Timestamp::now();
 
     // Even a cached status needs the login's tier for the plan.
@@ -130,10 +141,125 @@ pub fn snapshot(ctx: &Context, max_age: SignedDuration, net: &dyn Net) -> Snapsh
     }
 }
 
+const STAMP: &str = "refresh.stamp";
+
+/// Does any account that the user can't fix have no cache, or one older than a minute?
+pub fn needs_refresh(s: &Snapshot, at: Timestamp) -> bool {
+    s.rows.iter().any(|row| match &row.status {
+        Status::Ready { fetched_at, .. } => {
+            at.duration_since(*fetched_at) > SignedDuration::from_mins(1)
+        }
+        Status::NotLoggedIn | Status::LoginExpired => false,
+        Status::Unavailable => true,
+    })
+}
+
+/// Was a refresh started in the last minute?
+pub fn stamp_is_fresh(cache: &Path) -> bool {
+    fs::metadata(cache.join(STAMP))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < Duration::from_secs(60))
+}
+
+/// Note that a refresh is starting now.
+pub fn touch_stamp(cache: &Path) {
+    let _ = fs::create_dir_all(cache);
+    let _ = fs::write(cache.join(STAMP), b"");
+}
+
+/// Start `tally refresh` on its own when something is stale and none ran in
+/// the last minute. Never waits, never fails; its errors go to `refresh.log`.
+pub fn refresh_in_background(ctx: &Context, s: &Snapshot) {
+    if !needs_refresh(s, Timestamp::now()) || stamp_is_fresh(&ctx.paths.cache) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    touch_stamp(&ctx.paths.cache);
+    let log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(ctx.paths.cache.join("refresh.log"))
+        .map_or_else(|_| Stdio::null(), Stdio::from);
+    let _ = Command::new(exe)
+        .arg("--config")
+        .arg(&ctx.paths.config)
+        .arg("refresh")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(log)
+        .spawn();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::{ApiError, Tokens, Usage};
+
+    fn row(status: Status) -> Row {
+        Row {
+            account: Account {
+                name: "a".into(),
+                dir: "/x".into(),
+                plan: None,
+                is_main: false,
+            },
+            status,
+            plan: 1.0,
+            plan_known: true,
+            metrics: None,
+        }
+    }
+
+    fn ready(age_secs: i64) -> Status {
+        let usage = Usage {
+            five_hour: None,
+            seven_day: None,
+        };
+        Status::Ready {
+            usage,
+            fetched_at: Timestamp::from_second(1000 - age_secs).unwrap(),
+            stale: false,
+        }
+    }
+
+    fn snap(rows: Vec<Row>) -> Snapshot {
+        Snapshot {
+            rows,
+            totals: maths::totals(&[]),
+            pick: None,
+        }
+    }
+
+    #[test]
+    fn old_or_missing_caches_need_a_refresh() {
+        let at = Timestamp::from_second(1000).unwrap();
+        assert!(!needs_refresh(&snap(vec![row(ready(30))]), at));
+        assert!(needs_refresh(&snap(vec![row(ready(61))]), at));
+        assert!(needs_refresh(&snap(vec![row(Status::Unavailable)]), at));
+    }
+
+    #[test]
+    fn only_the_user_can_fix_a_login() {
+        let at = Timestamp::from_second(1000).unwrap();
+        let s = snap(vec![
+            row(Status::NotLoggedIn),
+            row(Status::LoginExpired),
+            row(ready(5)),
+        ]);
+        assert!(!needs_refresh(&s, at));
+    }
+
+    #[test]
+    fn a_fresh_stamp_stops_a_spawn() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(!stamp_is_fresh(tmp.path()));
+        touch_stamp(tmp.path());
+        assert!(stamp_is_fresh(tmp.path()));
+    }
     use crate::config::{Config, Paths};
 
     struct Offline;

@@ -15,6 +15,26 @@ use crate::credentials;
 pub trait Net: Sync {
     fn usage(&self, token: &str) -> Result<Usage, ApiError>;
     fn refresh(&self, refresh_token: &str) -> Result<Tokens, ApiError>;
+    /// Whether an expired token may be renewed here; shell startup says no.
+    fn renews(&self) -> bool {
+        true
+    }
+}
+
+/// A `Net` that fetches usage but never renews tokens: an account with an
+/// expired token falls back to its cache.
+pub struct NoRenew<'a>(pub &'a dyn Net);
+
+impl Net for NoRenew<'_> {
+    fn usage(&self, token: &str) -> Result<Usage, ApiError> {
+        self.0.usage(token)
+    }
+    fn refresh(&self, refresh_token: &str) -> Result<Tokens, ApiError> {
+        self.0.refresh(refresh_token)
+    }
+    fn renews(&self) -> bool {
+        false
+    }
 }
 
 /// The real thing.
@@ -78,6 +98,27 @@ fn try_write_cache(
     Ok(())
 }
 
+/// What the cache alone says, without the network, a renewal or any file
+/// written. A login is still needed for the account to count.
+pub fn from_cache(
+    account: &Account,
+    cache_dir: &Path,
+    max_age: SignedDuration,
+    at: Timestamp,
+) -> Status {
+    if let Ok(None) = credentials::read(&account.dir) {
+        return Status::NotLoggedIn;
+    }
+    match cached(account, cache_dir) {
+        Some((usage, fetched_at)) => Status::Ready {
+            usage,
+            fetched_at,
+            stale: at.duration_since(fetched_at) > max_age,
+        },
+        None => Status::Unavailable,
+    }
+}
+
 pub fn status(
     account: &Account,
     cache_dir: &Path,
@@ -113,6 +154,9 @@ pub fn status(
     let at_ms = at.as_millisecond();
 
     let token = if oauth.expires_at <= at_ms {
+        if !net.renews() {
+            return fallback(cache);
+        }
         match renew(account, cache_dir, at_ms, net) {
             Renewed::Token(t) => t,
             Renewed::Done(status) => return status,
@@ -158,12 +202,13 @@ fn renew(account: &Account, cache_dir: &Path, at_ms: i64, net: &dyn Net) -> Rene
     let Ok(lock) = fs::File::create(&lock_path) else {
         return Renewed::Offline;
     };
-    if lock.lock().is_err() {
+    // Never wait: whoever holds it is refreshing, and we use the cache.
+    if lock.try_lock().is_err() {
         return Renewed::Offline;
     }
     // The lock is released when `lock` drops, after the tokens are stored.
 
-    // Someone else may have refreshed while we waited.
+    // Someone else may have refreshed since the caller looked.
     let oauth = match credentials::read(&account.dir) {
         Ok(Some(o)) => o,
         Ok(None) => return Renewed::Done(Status::NotLoggedIn),
@@ -721,25 +766,72 @@ mod tests {
     }
 
     #[test]
-    fn credentials_refreshed_while_waiting_for_the_lock_are_used() {
+    fn renew_rereads_the_credentials_under_the_lock() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("cache");
+        let a = account(t.path(), "a");
+        login(&a, "theirs", Some("r2"), 5_000_000);
+        let net = Fake::default();
+        // our caller saw an expired login; by the time we hold the lock it is fresh
+        let r = renew(&a, &cache, 1_000_000, &net);
+        assert!(matches!(r, Renewed::Token(ref t) if t == "theirs"));
+        assert_eq!(net.refresh_calls.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn a_held_refresh_lock_gives_the_cache_without_refreshing() {
         let t = tempfile::tempdir().unwrap();
         let cache = t.path().join("cache");
         fs::create_dir_all(&cache).unwrap();
         let a = account(t.path(), "a");
         login(&a, "old", Some("r1"), 1_000_000);
+        write_cache(&a, &cache, &usage(33.0), ts(900));
         let net = Fake::with_usage(Ok(usage(5.0)));
         let held = fs::File::create(cache.join("a.lock")).unwrap();
         held.lock().unwrap();
-        let s = std::thread::scope(|sc| {
-            let h = sc.spawn(|| status(&a, &cache, MIN, ts(1000), &net));
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            // Another process refreshed meanwhile.
-            login(&a, "theirs", Some("r2"), 5_000_000);
-            drop(held);
-            h.join().unwrap()
-        });
-        assert!(matches!(s, Status::Ready { .. }));
+        let started = std::time::Instant::now();
+        let s = status(&a, &cache, MIN, ts(1000), &net);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert!(matches!(s, Status::Ready { stale: true, .. }));
         assert_eq!(net.refresh_calls.lock().unwrap().len(), 0);
-        assert_eq!(*net.usage_calls.lock().unwrap(), vec!["theirs"]);
+        assert!(net.usage_calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn without_renewing_an_expired_token_uses_the_cache() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("cache");
+        let a = account(t.path(), "a");
+        login(&a, "old", Some("r1"), 1_000_000);
+        write_cache(&a, &cache, &usage(33.0), ts(900));
+        let net = Fake::with_usage(Ok(usage(5.0)));
+        let s = status(&a, &cache, MIN, ts(1000), &NoRenew(&net));
+        assert!(matches!(s, Status::Ready { stale: true, .. }));
+        assert_eq!(net.refresh_calls.lock().unwrap().len(), 0);
+        assert!(net.usage_calls.lock().unwrap().is_empty());
+        // and it touched nothing in the account folder
+        assert!(!cache.join("a.lock").exists());
+    }
+
+    #[test]
+    fn from_cache_never_asks_the_network_or_renews() {
+        let t = tempfile::tempdir().unwrap();
+        let cache = t.path().join("cache");
+        let a = account(t.path(), "a");
+        assert!(matches!(
+            from_cache(&a, &cache, MIN, ts(1000)),
+            Status::NotLoggedIn
+        ));
+        login(&a, "old", Some("r1"), 1_000_000);
+        assert!(matches!(
+            from_cache(&a, &cache, MIN, ts(1000)),
+            Status::Unavailable
+        ));
+        write_cache(&a, &cache, &usage(33.0), ts(900));
+        assert!(matches!(
+            from_cache(&a, &cache, MIN, ts(1000)),
+            Status::Ready { stale: true, .. }
+        ));
+        assert!(!cache.join("a.lock").exists());
     }
 }

@@ -1,25 +1,9 @@
-use std::process::{Command, Stdio};
-
-use anyhow::anyhow;
 use jiff::{SignedDuration, Timestamp};
 
-use super::{Snapshot, snapshot};
-use crate::api::{ApiError, Tokens, Usage};
+use super::{build, refresh_in_background};
 use crate::context::Context;
 use crate::format;
-use crate::usage::{Net, Status};
-
-/// The status line never touches the network; `refresh` does that.
-struct Cached;
-
-impl Net for Cached {
-    fn usage(&self, _: &str) -> Result<Usage, ApiError> {
-        Err(ApiError::Other(anyhow!("cache only")))
-    }
-    fn refresh(&self, _: &str) -> Result<Tokens, ApiError> {
-        Err(ApiError::Other(anyhow!("cache only")))
-    }
-}
+use crate::usage::{self, Status};
 
 /// `TALLY_ACCOUNT`, else the account whose folder is `CLAUDE_CONFIG_DIR`, else main.
 fn account_name(ctx: &Context) -> Option<String> {
@@ -40,39 +24,17 @@ fn account_name(ctx: &Context) -> Option<String> {
         .map(|a| a.name.clone())
 }
 
-/// Does any account that could be fetched have no cache, or one older than a minute?
-fn stale(snap: &Snapshot) -> bool {
-    let at = Timestamp::now();
-    snap.rows.iter().any(|row| match &row.status {
-        Status::Ready { fetched_at, .. } => {
-            at.duration_since(*fetched_at) > SignedDuration::from_mins(1)
-        }
-        Status::NotLoggedIn => false,
-        _ => true,
-    })
-}
-
-/// Run `tally refresh` on its own, without waiting for it.
-fn spawn_refresh(ctx: &Context) {
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let _ = Command::new(exe)
-        .arg("--config")
-        .arg(&ctx.paths.config)
-        .arg("refresh")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-}
-
 /// Never fails: Claude Code would show an error in place of the line.
+/// Reads the cache only; a background refresh keeps it fresh.
 pub fn run(ctx: &Context) {
-    let snap = snapshot(ctx, SignedDuration::MAX, &Cached);
-    if stale(&snap) {
-        spawn_refresh(ctx);
-    }
+    let at = Timestamp::now();
+    let statuses = ctx
+        .accounts
+        .iter()
+        .map(|a| usage::from_cache(a, &ctx.paths.cache, SignedDuration::from_mins(1), at))
+        .collect();
+    let snap = build(ctx, statuses);
+    refresh_in_background(ctx, &snap);
     let any = snap
         .rows
         .iter()
