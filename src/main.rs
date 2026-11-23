@@ -18,11 +18,16 @@ use context::Context;
 
 fn main() {
     let cli = Cli::parse();
-    // Shell startup and the status line must never fail, whatever is wrong.
-    if let Some(Commands::Notice | Commands::Statusline) = cli.command {
+    // Shell startup, completions and the status line must never fail, whatever is wrong.
+    if let Some(Commands::Notice | Commands::Statusline | Commands::Accounts) = cli.command {
         if let Ok(ctx) = Context::load(cli.config) {
             match cli.command {
                 Some(Commands::Notice) => commands::notice::run(&ctx),
+                Some(Commands::Accounts) => {
+                    for a in &ctx.accounts {
+                        println!("{}", a.name);
+                    }
+                }
                 _ => commands::statusline::run(&ctx),
             }
         }
@@ -35,9 +40,14 @@ fn main() {
 }
 
 fn real_main(cli: Cli) -> Result<()> {
-    // needs no config: it must work even when the config is broken
-    if let Some(Commands::SelfUpgrade) = cli.command {
-        return commands::self_upgrade::run();
+    // need no config: they must work even when the config is broken
+    match cli.command {
+        Some(Commands::SelfUpgrade) => return commands::self_upgrade::run(),
+        Some(Commands::Init { shell }) => {
+            commands::init::run(shell);
+            return Ok(());
+        }
+        _ => {}
     }
     let ctx = Context::load(cli.config)?;
     match cli.command {
@@ -48,13 +58,18 @@ fn real_main(cli: Cli) -> Result<()> {
         Some(Commands::Add { name, plan }) => commands::add::run(&ctx, &name, plan),
         Some(Commands::Remove { name }) => commands::remove::run(&ctx, &name),
         Some(Commands::Login { account }) => commands::login::run(&ctx, &account),
-        Some(Commands::Init { shell }) => commands::init::run(&ctx, shell),
         Some(Commands::Refresh) => {
             commands::refresh::run(&ctx);
             Ok(())
         }
         None => commands::summary::run(&ctx),
-        // handled in main: they never fail
-        Some(Commands::Notice | Commands::Statusline | Commands::SelfUpgrade) => Ok(()),
+        // handled above
+        Some(
+            Commands::Notice
+            | Commands::Statusline
+            | Commands::Accounts
+            | Commands::SelfUpgrade
+            | Commands::Init { .. },
+        ) => Ok(()),
     }
 }

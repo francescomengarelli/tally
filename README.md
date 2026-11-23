@@ -100,7 +100,7 @@ home, not a parent of `~/.claude`, and not shared with another account.
 | `tally login ACCOUNT`          | Log the account in (creates its folder if needed)   |
 | `tally notice`                 | One line for shell startup                          |
 | `tally statusline`             | One line for Claude Code's status line              |
-| `tally init fish`              | Aliases and completions, for `\| source`            |
+| `tally init fish`              | `claude` wrapper and completions, for `\| source`   |
 | `tally self-upgrade`           | Upgrade to the latest release                       |
 
 ## Integrations
@@ -113,13 +113,14 @@ In `~/.config/fish/conf.d/tally.fish`:
 tally init fish | source
 ```
 
-This defines `cl` (`tally run`), `cl-<name>` for each account, and
-completions that wrap claude's. Call `tally notice` to print the startup line. The
+This makes `claude` run `tally run`, keeping claude's completions, and
+completes account names after `tally run`, `login` and `remove`. `command
+claude` still runs the binary as-is. Call `tally notice` to print the startup line. The
 once-per-kitty-window check lives in your shell config (your dotfiles), not in
 tally:
 
 ```
- claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  cl (personal)
+ claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
 ```
 
 ### Status line
@@ -142,7 +143,7 @@ When another account is worth switching to, it ends with the command that
 resumes this session there:
 
 ```
-acme · now 2% · week 40% · 13%/day (37%)  →  cl-personal -r 3f2a91c0-…
+acme · now 2% · week 40% · 13%/day (37%)  →  tally run personal -- -r 3f2a91c0-…
 ```
 
 Red means this account has no room left for a session, yellow that the other

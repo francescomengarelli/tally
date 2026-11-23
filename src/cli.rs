@@ -54,6 +54,9 @@ pub enum Commands {
     /// Refresh the cache in the background.
     #[command(hide = true)]
     Refresh,
+    /// Print the account names, one per line, for shell completions.
+    #[command(hide = true)]
+    Accounts,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
