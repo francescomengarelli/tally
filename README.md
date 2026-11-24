@@ -120,7 +120,7 @@ once-per-kitty-window check lives in your shell config (your dotfiles), not in
 tally:
 
 ```
- claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
+   claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
 ```
 
 ### Status line

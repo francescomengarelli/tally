@@ -201,7 +201,7 @@ only where a session can actually run.
 dotfiles):
 
 ```
- claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
+   claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
 ```
 
 `statusline`, from `TALLY_ACCOUNT`, or from `CLAUDE_CONFIG_DIR` when Claude
