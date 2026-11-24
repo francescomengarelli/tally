@@ -106,7 +106,7 @@ pub fn notice(s: &Snapshot, color: bool) -> Option<String> {
         .filter(|r| matches!(r.status, Status::NotLoggedIn | Status::LoginExpired))
         .count();
     let mut line = Line::new(color)
-        .val(" \u{f6a8} ", Some(CLAUDE))
+        .val(" \u{f06a9} ", Some(CLAUDE))
         .dim(" claude: now ")
         .val(&pct(t.now), now_colour(t.now, s.min_session))
         .dim(" · week ")
@@ -391,7 +391,7 @@ mod tests {
     fn notice_line_exact() {
         assert_eq!(
             notice(&two(), false).unwrap(),
-            " \u{f6a8}  claude: now 166% · week 166% left (of 260%) · 26%/day (37% steady)  →  claude (personal)"
+            " \u{f06a9}  claude: now 166% · week 166% left (of 260%) · 26%/day (37% steady)  →  claude (personal)"
         );
     }
 
@@ -399,7 +399,7 @@ mod tests {
     fn notice_colours_the_robot_orange_the_prefix_dim_and_the_command_bold() {
         let n = notice(&two(), true).unwrap();
         assert!(
-            n.starts_with("\x1b[38;2;217;119;87m \u{f6a8} \x1b[0m\x1b[90m claude: now \x1b[0m")
+            n.starts_with("\x1b[38;2;217;119;87m \u{f06a9} \x1b[0m\x1b[90m claude: now \x1b[0m")
         );
         assert!(n.ends_with("\x1b[1mclaude (personal)\x1b[0m"));
     }
