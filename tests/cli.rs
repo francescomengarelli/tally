@@ -422,9 +422,11 @@ fn notice_prints_the_totals_and_the_pick() {
     let env = Env::new(CONFIG);
     env.cache("acme", 0.0, 0.0);
     env.cache("personal", 0.0, 0.0);
-    env.tally().arg("notice").assert().success().stdout(
-        predicate::str::contains(" claude: now ").and(predicate::str::contains("→  claude (")),
-    );
+    env.tally()
+        .arg("notice")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(" now ").and(predicate::str::contains(" → ")));
 }
 
 #[test]
@@ -488,7 +490,7 @@ fn statusline_suggests_resuming_when_out_of_room() {
         .assert()
         .success()
         .stdout(predicate::str::ends_with(
-            "  →  tally run personal -- -r 3f2a91c0-7d4e-4b1a-9c2e-5a6b7c8d9e01\n",
+            " → tally run personal -- -r 3f2a91c0-7d4e-4b1a-9c2e-5a6b7c8d9e01\n",
         ));
 }
 
@@ -503,7 +505,7 @@ fn statusline_suggests_resuming_where_much_more_expires() {
         .write_stdin(SESSION)
         .assert()
         .success()
-        .stdout(predicate::str::contains("→  tally run personal -- -r 3f2a"));
+        .stdout(predicate::str::contains("→ tally run personal -- -r 3f2a"));
 }
 
 #[test]
@@ -531,7 +533,7 @@ fn statusline_drops_a_session_id_that_could_draw_on_screen() {
         .write_stdin(r#"{"session_id":"x\u001b[2J"}"#)
         .assert()
         .success()
-        .stdout(predicate::str::ends_with("  →  tally run personal\n"));
+        .stdout(predicate::str::ends_with(" → tally run personal\n"));
 }
 
 #[test]

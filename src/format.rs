@@ -65,6 +65,12 @@ fn pct(x: f64) -> String {
     format!("{x:.0}%")
 }
 
+/// `31/37%/day`: the daily rate in its colour, then the steady one.
+fn pace(line: Line, day: f64, steady: f64) -> Line {
+    line.val(&format!("{day:.0}"), pace_colour(day, steady))
+        .dim(&format!("/{}/day", pct(steady)))
+}
+
 /// Labels dim, numbers in their colour.
 struct Line {
     on: bool,
@@ -105,27 +111,21 @@ pub fn notice(s: &Snapshot, color: bool) -> Option<String> {
         .iter()
         .filter(|r| matches!(r.status, Status::NotLoggedIn | Status::LoginExpired))
         .count();
-    let mut line = Line::new(color)
+    let line = Line::new(color)
         .val(" \u{f06a9} ", Some(CLAUDE))
-        .dim(" claude: now ")
+        .dim(" now ")
         .val(&pct(t.now), now_colour(t.now, s.min_session))
         .dim(" · week ")
-        .val(&pct(t.week), week_colour(t.week, t.capacity))
-        .dim(&format!(" left (of {}) · ", pct(t.capacity)))
-        .val(
-            &format!("{}/day", pct(t.day)),
-            pace_colour(t.day, t.steady()),
-        )
-        .dim(&format!(" ({} steady)", pct(t.steady())));
+        .val(&format!("{:.0}", t.week), week_colour(t.week, t.capacity))
+        .dim(&format!("/{} · ", pct(t.capacity)));
+    let mut line = pace(line, t.day, t.steady());
     if out > 0 {
         line = line
             .dim(" · ")
             .val(&format!("{out} to log in"), Some(YELLOW));
     }
     if let Some(p) = &s.pick {
-        line = line
-            .dim("  →  ")
-            .val(&format!("claude ({})", p.name), Some(BOLD));
+        line = line.dim(" → ").val(&p.name, Some(BOLD));
     }
     Some(line.out)
 }
@@ -146,12 +146,8 @@ pub fn statusline(account: &str, s: &Snapshot, hint: Option<&Hint>, color: bool)
         .val(&pct(t.now), now_colour(t.now, s.min_session))
         .dim(" · week ")
         .val(&pct(t.week), week_colour(t.week, t.capacity))
-        .dim(" · ")
-        .val(
-            &format!("{}/day", pct(t.day)),
-            pace_colour(t.day, t.steady()),
-        )
-        .dim(&format!(" ({})", pct(t.steady())));
+        .dim(" · ");
+    let line = pace(line, t.day, t.steady());
     let Some(h) = hint else {
         return line.out;
     };
@@ -163,7 +159,7 @@ pub fn statusline(account: &str, s: &Snapshot, hint: Option<&Hint>, color: bool)
         Switch::Needed => RED,
         Switch::Better => YELLOW,
     };
-    line.dim("  →  ").val(&cmd, Some(code)).out
+    line.dim(" → ").val(&cmd, Some(code)).out
 }
 
 /// Percent used in a window; one that has already reset counts as unused.
@@ -391,32 +387,30 @@ mod tests {
     fn notice_line_exact() {
         assert_eq!(
             notice(&two(), false).unwrap(),
-            " \u{f06a9}  claude: now 166% · week 166% left (of 260%) · 26%/day (37% steady)  →  claude (personal)"
+            " \u{f06a9}  now 166% · week 166/260% · 26/37%/day → personal"
         );
     }
 
     #[test]
     fn notice_colours_the_robot_orange_the_prefix_dim_and_the_command_bold() {
         let n = notice(&two(), true).unwrap();
-        assert!(
-            n.starts_with("\x1b[38;2;217;119;87m \u{f06a9} \x1b[0m\x1b[90m claude: now \x1b[0m")
-        );
-        assert!(n.ends_with("\x1b[1mclaude (personal)\x1b[0m"));
+        assert!(n.starts_with("\x1b[38;2;217;119;87m \u{f06a9} \x1b[0m\x1b[90m now \x1b[0m"));
+        assert!(n.ends_with("\x1b[1mpersonal\x1b[0m"));
     }
 
     #[test]
     fn colours_follow_the_numbers() {
-        // 26%/day against 37% steady: the week went early, so red
+        // 26/day against 37% steady: the week went early, so red
         let n = notice(&two(), true).unwrap();
-        assert!(n.contains("\x1b[31m26%/day\x1b[0m"));
+        assert!(n.contains("\x1b[31m26\x1b[0m"));
         assert!(n.contains("\x1b[32m166%\x1b[0m"));
-        // the fresh week alone: 23%/day, steady 23% → no colour
+        // the fresh week alone: 23/day, steady 23% → no colour
         let mut s = two();
         s.rows.remove(0);
         let ms: Vec<maths::Metrics> = s.rows.iter().filter_map(|r| r.metrics.clone()).collect();
         s.totals = maths::totals(&ms);
         let n = notice(&s, true).unwrap();
-        assert!(n.contains("· \x1b[0m23%/day"));
+        assert!(n.contains("· \x1b[0m23\x1b[90m/23%/day"));
     }
 
     #[test]
@@ -444,7 +438,7 @@ mod tests {
         assert!(
             notice(&s, false)
                 .unwrap()
-                .contains("(37% steady) · 1 to log in  →")
+                .contains("/37%/day · 1 to log in →")
         );
     }
 
@@ -464,7 +458,7 @@ mod tests {
     fn statusline_exact() {
         assert_eq!(
             statusline("personal", &two(), None, false),
-            "personal · now 166% · week 166% · 26%/day (37%)"
+            "personal · now 166% · week 166% · 26/37%/day"
         );
     }
 
@@ -477,7 +471,7 @@ mod tests {
         };
         assert_eq!(
             statusline("acme", &two(), Some(&hint), false),
-            "acme · now 166% · week 166% · 26%/day (37%)  →  tally run personal -- -r 3f2a-e91c"
+            "acme · now 166% · week 166% · 26/37%/day → tally run personal -- -r 3f2a-e91c"
         );
         let hint = Hint {
             session: None,
