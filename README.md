@@ -47,7 +47,8 @@ already read in `/usage`. Other plans are weighted by their multiple of Pro
   window and the week)
 - `week`: what is left of the week, summed over accounts
 - `/day`: the daily rate that uses the week up before it resets
-- `steady`: the week spread evenly (capacity / 7), what a fresh week allows per day
+- `steady`: the week spread evenly (capacity / 7), what a fresh week allows per day.
+  The lines show it after `/day`: `31/37%/day` is 31% against a steady 37%
 
 Numbers are coloured: `/day` is green above steady (usage that resets soon,
 spend it) and red below it (the week went early, go easy); `now` is red when
@@ -120,7 +121,7 @@ once-per-kitty-window check lives in your shell config (your dotfiles), not in
 tally:
 
 ```
- 󰚩  claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
+ 󰚩  now 72% · week 206/260% · 31/37%/day → personal
 ```
 
 ### Status line
@@ -136,14 +137,14 @@ running (`TALLY_ACCOUNT`, else the account whose folder is `CLAUDE_CONFIG_DIR`,
 else the main one):
 
 ```
-personal · now 72% · week 206% · 31%/day (37%)
+personal · now 72% · week 206% · 31/37%/day
 ```
 
 When another account is worth switching to, it ends with the command that
 resumes this session there:
 
 ```
-acme · now 2% · week 40% · 13%/day (37%)  →  tally run personal -- -r 3f2a91c0-…
+acme · now 2% · week 40% · 13/37%/day → tally run personal -- -r 3f2a91c0-…
 ```
 
 Red means this account has no room left for a session, yellow that the other

@@ -178,7 +178,7 @@ For an account `a` with weekly multiple `P_a`, and the unit account's `P_u`:
   resets. With less than a day left, all of it counts as today.
 
 Totals are plain sums. `week` also shows the total capacity
-(`100 × Σ weight`), e.g. `week 206% left (of 260%)`.
+(`100 × Σ weight`), e.g. `week 206/260%`.
 
 ## Picking an account
 
@@ -201,18 +201,18 @@ only where a session can actually run.
 dotfiles):
 
 ```
- 󰚩  claude: now 72% · week 206% left (of 260%) · 31%/day (37% steady)  →  claude (personal)
+ 󰚩  now 72% · week 206/260% · 31/37%/day → personal
 ```
 
 `statusline`, from `TALLY_ACCOUNT`, or from `CLAUDE_CONFIG_DIR` when Claude
 was started without tally:
 
 ```
-personal · now 72% · week 206% · 31%/day (37%)
+personal · now 72% · week 206% · 31/37%/day
 ```
 
 When the picked account is not the one running, and switching is worth it,
-the line ends with `  →  tally run <picked> -- -r <session id>`, the session
+the line ends with ` → tally run <picked> -- -r <session id>`, the session
 id read from the JSON Claude Code pipes in (letters, digits and dashes only;
 without one, just `tally run <picked>`). Worth it means:
 
